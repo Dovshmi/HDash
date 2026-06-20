@@ -40,11 +40,10 @@ load_state() {
     return
   fi
 
-  # One-time migration from the first Go JSON state file.
   if [[ -f "$LEGACY_JSON" ]]; then
     local old_target old_hunter
-    old_target="$(awk -F'"' '/"target_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
-    old_hunter="$(awk -F'"' '/"hunter_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
+    old_target="$(awk -F'\"' '/"target_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
+    old_hunter="$(awk -F'\"' '/"hunter_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
     [[ -n "$old_target" ]] && TARGET="$old_target"
     [[ -n "$old_hunter" ]] && HUNTER="$old_hunter"
     save_state
@@ -54,8 +53,8 @@ load_state() {
 save_state() {
   mkdir -p "$CONFIG_DIR"
   {
-    printf 'export TARGET=%s\n' "$(quote_shell "$TARGET")"
-    printf 'export HUNTER=%s\n' "$(quote_shell "$HUNTER")"
+    printf 'export TARGET=%s\\n' "$(quote_shell "$TARGET")"
+    printf 'export HUNTER=%s\\n' "$(quote_shell "$HUNTER")"
   } > "$STATE_FILE"
   chmod 600 "$STATE_FILE" 2>/dev/null
 }
@@ -64,7 +63,6 @@ export_vars() {
   export TARGET
   export HUNTER
 
-  # Make new tmux panes/windows inherit these values too.
   if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
     tmux set-environment -g TARGET "$TARGET" 2>/dev/null
     tmux set-environment -g HUNTER "$HUNTER" 2>/dev/null
@@ -72,10 +70,8 @@ export_vars() {
 }
 
 notify_parent_shell() {
-  # When launched from the tmux popup binding, this points at the pane's shell.
-  # The shell rc block traps USR1 and reloads ~/.config/hacker-dash/state.env.
   if [[ "${HACKER_DASH_NOTIFY_PID:-}" =~ ^[0-9]+$ ]]; then
-    kill -USR1 "$HACKER_DASH_NOTIFY_PID" 2>/dev/null || true
+    kill -USR1 "${HACKER_DASH_NOTIFY_PID}" 2>/dev/null || true
   fi
 }
 
@@ -109,32 +105,25 @@ set_selected_value() {
 osc52_copy() {
   local text="$1" encoded
   command -v base64 >/dev/null 2>&1 || return 1
-  encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
+  encoded="$(printf '%s' "$text" | base64 | tr -d '\\n')"
 
-  # If inside tmux, wrap OSC52 in a tmux DCS passthrough. This is the
-  # most reliable way for tmux popups because DISPLAY/WAYLAND_DISPLAY
-  # are often missing even when wl-copy/xsel are installed.
   if [[ -n "${TMUX:-}" ]]; then
-    printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$encoded"
+    printf '\\033Ptmux;\\033\\033]52;c;%s\\a\\033\\\\' "$encoded"
   else
-    printf '\033]52;c;%s\a' "$encoded"
+    printf '\\033]52;c;%s\\a' "$encoded"
   fi
 }
 
 copy_clipboard() {
   local text="$1"
 
-  # Best path inside tmux: set tmux paste buffer AND request system clipboard
-  # via tmux's -w flag. This needs tmux set-clipboard on/external.
   if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
     if tmux set-buffer -w -- "$text" 2>/dev/null; then
       return 0
     fi
-    # Fallback: at least keep the tmux paste buffer updated.
     tmux set-buffer -- "$text" 2>/dev/null || true
   fi
 
-  # Desktop clipboard tools only work when their display variables exist.
   if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null 2>&1; then
     printf '%s' "$text" | wl-copy && return 0
   fi
@@ -151,46 +140,45 @@ copy_clipboard() {
     printf '%s' "$text" | pbcopy && return 0
   fi
 
-  # Last fallback: OSC52 terminal clipboard escape.
   osc52_copy "$text"
 }
 
 clear_screen() {
-  printf '\033[2J\033[H'
+  printf '\\033[2J\\033[H'
 }
 
+# --- Minimal Modern Palette ---
 bold='\033[1m'
-green='\033[38;5;46m'
-cyan='\033[38;5;51m'
-yellow='\033[38;5;226m'
-black_on_green='\033[30;48;5;46;1m'
-dim='\033[2m'
+grey='\033[38;5;244m'
+white='\033[0m'
+underline='\033[4m'
 reset='\033[0m'
 
 row() {
   local idx="$1" name="$2" value="$3"
   if [[ "$HD_SELECTED" -eq "$idx" ]]; then
-    printf '  %b %-8s %s %b\n' "$black_on_green" "$name" "$value" "$reset"
+    printf '  %b%s %s%b\n' "$white" "$name" "$value" "$reset"
+    # Subtle underline effect for selected row in bash
+    printf '  %b%s%b\n' "$grey" "────────────────────────────" "$reset"
   else
-    printf '  %b%-8s%b %b%s%b\n' "$green" "$name" "$reset" "$bold" "$value" "$reset"
+    printf '  %b%s %b%s%b\n' "$grey" "$name" "$white" "$value" "$reset"
   fi
 }
 
 draw_dashboard() {
   clear_screen
-  printf '%b╭──────────────────────────────╮%b\n' "$green" "$reset"
-  printf '%b│%b  ⚡ HACKER DASHBOARD ⚡      %b│%b\n' "$green" "$bold" "$green" "$reset"
-  printf '%b├──────────────────────────────┤%b\n' "$green" "$reset"
+  printf '%b──────────────────────────────%b\n' "$grey" "$reset"
+  printf '  %bHACKER DASHBOARD%b\n' "$bold" "$reset"
+  printf '%b──────────────────────────────%b\n' "$grey" "$reset"
   row 0 'TARGET:' "$TARGET"
   printf '\n'
   row 1 'HUNTER:' "$HUNTER"
-  printf '%b├──────────────────────────────┤%b\n' "$green" "$reset"
-  printf '  %b↑/↓ or j/k%b select   %bENTER%b action\n' "$dim" "$reset" "$yellow" "$reset"
-  printf '  %bq%b quit             %be%b edit selected\n' "$yellow" "$reset" "$yellow" "$reset"
+  printf '%b──────────────────────────────%b\n' "$grey" "$reset"
+  printf '  %b↑/↓ j/k select   ENTER action%b\n' "$grey" "$reset"
+  printf '  %bq quit             %be edit%b\n' "$grey" "$reset" "$grey" "$reset"
   if [[ -n "$HD_STATUS" ]]; then
-    printf '\n  %b%s%b\n' "$cyan" "$HD_STATUS" "$reset"
+    printf '\n  %b%s%b\n' "$grey" "$HD_STATUS" "$reset"
   fi
-  printf '%b╰──────────────────────────────╯%b\n' "$green" "$reset"
 }
 
 read_key() {
@@ -210,33 +198,21 @@ action_menu() {
 
   while true; do
     clear_screen
-    printf '%b╭──────────────────────────────╮%b\n' "$green" "$reset"
-    printf '%b│%b Action for %-6s          %b│%b\n' "$green" "$bold" "$name" "$green" "$reset"
-    printf '%b├──────────────────────────────┤%b\n' "$green" "$reset"
-    printf '  %b%s%b\n\n' "$cyan" "$value" "$reset"
+    printf '%b──────────────────────────────%b\n' "$grey" "$reset"
+    printf '  %bAction for %-6s%b\n' "$bold" "$name" "$reset"
+    printf '%b──────────────────────────────%b\n' "$grey" "$reset"
+    printf '  %b%s%b\n\n' "$grey" "$value" "$reset"
 
-    if [[ "$action" -eq 0 ]]; then printf '  %b Copy to clipboard %b\n' "$black_on_green" "$reset"; else printf '   Copy to clipboard\n'; fi
-    if [[ "$action" -eq 1 ]]; then printf '  %b Change IP         %b\n' "$black_on_green" "$reset"; else printf '   Change IP\n'; fi
-    if [[ "$action" -eq 2 ]]; then printf '  %b Back              %b\n' "$black_on_green" "$reset"; else printf '   Back\n'; fi
+    if [[ "$action" -eq 0 ]]; then printf '  %b Copy to clipboard %b\n' "$white" "$reset"; else printf '   Copy to clipboard\n'; fi
+    if [[ "$action" -eq 1 ]]; then printf '  %b Change IP         %b\n' "$white" "$reset"; else printf '   Change IP\n'; fi
+    if [[ "$action" -eq 2 ]]; then printf '  %b Back              %b\n' "$white" "$reset"; else printf '   Back\n'; fi
 
-    printf '\n  %b↑/↓ select, ENTER confirm%b\n' "$dim" "$reset"
-    printf '%b╰──────────────────────────────╯%b\n' "$green" "$reset"
+    printf '\n  %b↑/↓ select, ENTER confirm%b\n' "$grey" "$reset"
+    printf '%b──────────────────────────────%b\n' "$grey" "$reset"
 
     key="$(read_key)"
     case "$key" in
-      $'\x1b[A'|k|K) (( action > 0 )) && ((action--)) ;;
-      $'\x1b[B'|j|J) (( action < 2 )) && ((action++)) ;;
-      q|Q|b|B) return ;;
-      '')
-        case "$action" in
-          0) copy_selected; return ;;
-          1) edit_selected; return ;;
-          2) return ;;
-        esac
-        ;;
-    esac
-  done
-}
+      $'\x1b[A'|k|K) (( action > 0 )) && ((action--)) ;;\n      $'\x1b[B'|j|J) (( action < 2 )) && ((action++)) ;;\n      q|Q|b|B) return ;;\n      '')\n        case "$action" in\n          0) copy_selected; return ;;\n          1) edit_selected; return ;;\n          2) return ;;\n        esac\n        ;;\n    esac\n  done\n}
 
 copy_selected() {
   local name value
@@ -252,9 +228,9 @@ copy_selected() {
   fi
 
   if copy_clipboard "$value"; then
-    HD_STATUS="Copied $name to clipboard and exported \$$name."
+    HD_STATUS="Copied $name to clipboard"
   else
-    HD_STATUS="Exported \$$name, but clipboard command failed."
+    HD_STATUS="Exported $$name, but clipboard failed"
   fi
   notify_parent_shell
 }
@@ -271,7 +247,7 @@ edit_selected() {
   IFS= read -r new_value
 
   set_selected_value "$new_value"
-  HD_STATUS="Updated $name and exported \$$name."
+  HD_STATUS="Updated $name"
 }
 
 run_ui() {
@@ -283,19 +259,14 @@ run_ui() {
     local key
     key="$(read_key)"
     case "$key" in
-      $'\x1b[A'|k|K) HD_SELECTED=0 ;;
-      $'\x1b[B'|j|J) HD_SELECTED=1 ;;
-      e|E) edit_selected ;;
-      q|Q|$'\x03') clear_screen; return 0 ;;
-      '') action_menu ;;
-    esac
+      $'\x1b[A'|k|K) HD_SELECTED=0 ;;\n      $'\x1b[B'|j|J) HD_SELECTED=1 ;;\n      e|E) edit_selected ;;\n      q|Q|$'\x03') clear_screen; return 0 ;;\n      '') action_menu ;;\n    esac
   done
 }
 
 print_env() {
   load_state
-  printf 'export TARGET=%s\n' "$(quote_shell "$TARGET")"
-  printf 'export HUNTER=%s\n' "$(quote_shell "$HUNTER")"
+  printf 'export TARGET=%s\\n' "$(quote_shell "$TARGET")"
+  printf 'export HUNTER=%s\\n' "$(quote_shell "$HUNTER")"
 }
 
 usage() {
@@ -312,7 +283,7 @@ Usage:
 Keys:
   up/down or k/j  select TARGET/HUNTER
   ENTER           choose Copy / Change / Back
-  e               edit selected directly
+  e               edit selected IP
   q               quit
 USAGE
 }
@@ -322,35 +293,26 @@ main() {
     --help|-h)
       usage
       return 0
-      ;;
-    --print-env)
+      ;;\n    --print-env)
       print_env
       return 0
-      ;;
-    --set)
+      ;;\n    --set)
       load_state
       case "${2:-}" in
-        TARGET) TARGET="${3:-}" ;;
-        HUNTER) HUNTER="${3:-}" ;;
-        *) printf 'Usage: --set TARGET|HUNTER value\n' >&2; return 2 ;;
-      esac
+        TARGET) TARGET="${3:-}" ;;\n        HUNTER) HUNTER="${3:-}" ;;\n        *) printf 'Usage: --set TARGET|HUNTER value\\n' >&2; return 2 ;;\n      esac
       save_state
       export_vars
       notify_parent_shell
       return 0
-      ;;
-    --clear)
+      ;;\n    --clear)
       TARGET=""
       HUNTER=""
       save_state
       export_vars
       notify_parent_shell
       return 0
-      ;;
-    *)
-      run_ui
-      ;;
-  esac
+      ;;\n    *)\n      run_ui
+      ;;\n  esac
 }
 
 main "$@"

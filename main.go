@@ -42,47 +42,46 @@ func saveState(state AppState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// --- Styling ---
+// --- Minimalist Styling ---
 
 var (
-	themeGreen = lipgloss.Color("#00FF00")
-	themeCyan  = lipgloss.Color("#00FFFF")
-	themeBkg   = lipgloss.Color("#1a1a1a")
-	
+	colorAccent = lipgloss.Color("#888888") // Subtle grey for labels
+	colorValue  = lipgloss.Color("#FFFFFF") // White for values
+	colorActive = lipgloss.Color("#E0E0E0") // Slightly brighter for active
+
 	headerStyle = lipgloss.NewStyle().
-			Foreground(themeGreen).
+			Foreground(colorValue).
 			Bold(true).
 			MarginLeft(2).
 			Padding(0, 1)
 
 	labelStyle = lipgloss.NewStyle().
-			Foreground(themeGreen).
-			Bold(true).
+			Foreground(colorAccent).
 			Width(12)
 
 	valueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
+			Foreground(colorValue).
 			Bold(true)
 
 	selectedStyle = lipgloss.NewStyle().
-			Background(themeGreen).
-			Foreground(lipgloss.Color("#000000")).
-			Bold(true)
+			Foreground(colorValue).
+			Bold(true).
+			Underline(true)
+
+	statusStyle = lipgloss.NewStyle().
+			Foreground(colorAccent).
+			Italic(true)
 
 	buttonStyle = lipgloss.NewStyle().
-			Foreground(themeGreen).
-			Background(lipgloss.Color("#003300")).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(themeGreen).
+			Foreground(colorValue).
 			Padding(0, 1).
 			Bold(true)
 
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(themeGreen).
+			BorderForeground(colorAccent).
 			Padding(1, 2).
-			Margin(1, 2).
-			Background(themeBkg)
+			Margin(1, 2)
 )
 
 // --- Bubble Tea Model ---
@@ -116,12 +115,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.handleEnter()
 			return m, nil
+		case "c", "C":
+			m.copyCurrent()
+			return m, nil
 		}
 	}
 	return m, nil
 }
 
-func (m *model) handleEnter() {
+func (m *model) copyCurrent() {
 	var currentIP string
 	var label string
 	if m.cursor == 0 {
@@ -132,22 +134,36 @@ func (m *model) handleEnter() {
 		label = "HUNTER"
 	}
 
-	// We'll use a simple scan for the Copy/Change action to avoid 
-	// version conflicts with huh's Select component.
-	fmt.Print("\n  [C] Copy to Clipboard  |  [E] Change IP  |  [B] Back: ")
+	if currentIP == "" {
+		m.lastAction = fmt.Sprintf("%s is empty", label)
+		return
+	}
+
+	clipboard.WriteAll(currentIP)
+	m.lastAction = fmt.Sprintf("Copied %s to clipboard", label)
+	os.WriteFile("/tmp/hacker_dash_target", []byte(fmt.Sprintf("export TARGET=%s", currentIP)), 0644)
+}
+
+func (m *model) handleEnter() {
+	var label string
+	if m.cursor == 0 {
+		label = "TARGET"
+	} else {
+		label = "HUNTER"
+	}
+
+	fmt.Print("\n  [C] Copy  |  [E] Edit  |  [B] Back: ")
 	var choice string
 	fmt.Scanln(&choice)
 
 	if choice == "c" || choice == "C" {
-		clipboard.WriteAll(currentIP)
-		m.lastAction = fmt.Sprintf("Copied %s to clipboard!", label)
-		os.WriteFile("/tmp/hacker_dash_target", []byte(fmt.Sprintf("export TARGET=%s", currentIP)), 0644)
+		m.copyCurrent()
 	} else if choice == "e" || choice == "E" {
 		var newIP string
 		input := huh.NewInput().
-			Title(fmt.Sprintf("Enter new %s IP", label)).
+			Title(fmt.Sprintf("Edit %s IP", label)).
 			Value(&newIP)
-		
+
 		editForm := huh.NewForm(huh.NewGroup(input))
 		if err := editForm.Run(); err == nil {
 			if m.cursor == 0 {
@@ -156,14 +172,14 @@ func (m *model) handleEnter() {
 				m.state.HunterIP = newIP
 			}
 			saveState(m.state)
-			m.lastAction = fmt.Sprintf("Updated %s!", label)
+			m.lastAction = fmt.Sprintf("Updated %s", label)
 		}
 	}
 }
 
 func (m model) View() string {
-	title := headerStyle.Render("⚡ HACKER DASHBOARD ⚡")
-	
+	title := headerStyle.Render("HACKER DASHBOARD")
+
 	var tLine, hLine string
 	if m.cursor == 0 {
 		tLine = selectedStyle.Render(fmt.Sprintf("%-12s %s", "TARGET:", m.state.TargetIP))
@@ -174,19 +190,15 @@ func (m model) View() string {
 	}
 
 	content := lipgloss.JoinVertical(
-		lipgloss.Top, 
+		lipgloss.Top,
 		tLine,
-		"", 
+		"",
 		hLine,
 	)
 
-	status := lipgloss.NewStyle().
-		Foreground(themeCyan).
-		Italic(true).
-		Render(m.lastAction)
-
+	status := statusStyle.Render(m.lastAction)
 	btnQuit := buttonStyle.Render(" [Q] QUIT ")
-	
+
 	return boxStyle.Render(
 		lipgloss.JoinVertical(
 			lipgloss.Top,
