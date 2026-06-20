@@ -1,0 +1,20 @@
+# Binaries
+hacker-dash
+bin/
+
+# Dependencies
+vendor/
+
+# OS files
+.DS_Store
+thumbs.db
+
+# Config/State (User specific)
+.config/hacker-dash/
+state.json
+state.env
+
+# Go
+*.exe
+*.test
+*.out
