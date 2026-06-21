@@ -42,6 +42,15 @@ assert_contains "$report_output" "Target: 10.10.10.10"
 assert_contains "$report_output" "Detected services: SSH, Web, SMB"
 assert_contains "$report_output" "Recommended next steps"
 
+run_hd --set RPORTS 22,80
+report_output="$(run_hd --report)"
+assert_contains "$report_output" "4. SSH: capture host keys/algorithms"
+if [[ "$report_output" == *"5. SSH:"* ]]; then
+  printf 'Report step numbering skipped a number:\n%s\n' "$report_output" >&2
+  exit 1
+fi
+run_hd --set RPORTS 22,80,445
+
 source ./hacker-dash.sh --help >/dev/null
 set -euo pipefail
 TARGET=10.10.10.10
@@ -118,7 +127,25 @@ def run_pty(keys, timeout=5):
                 proc.kill()
     return out.decode("utf-8", "ignore")
 
-preview = run_pty(b"r\r\rbqq")
+run_menu = run_pty(b"r\x7fq")
+if "Run commands" not in run_menu or "Smart scans" not in run_menu or "All scans" not in run_menu:
+    print(run_menu[-2000:])
+    sys.exit("run menu Smart/All smoke failed")
+if "Recon   " in run_menu or "Back\r\n" in run_menu or " Back\r\n" in run_menu:
+    print(run_menu[-2000:])
+    sys.exit("run menu still shows old category/back entries")
+
+smart_menu = run_pty(b"r\r\x7fq")
+if "Smart scans" not in smart_menu or "Showing only likely useful commands" not in smart_menu:
+    print(smart_menu[-2000:])
+    sys.exit("smart scans menu smoke failed")
+
+all_menu = run_pty(b"rj\r\x7fq")
+if "All scans" not in all_menu or "whatweb URL" not in all_menu or "nmap SMB enum scripts" not in all_menu:
+    print(all_menu[-2000:])
+    sys.exit("all scans menu smoke failed")
+
+preview = run_pty(b"r\r\rq")
 if "Preview command" not in preview or "nmap -sC -sV" not in preview:
     print(preview[-2000:])
     sys.exit("command preview UI smoke failed")

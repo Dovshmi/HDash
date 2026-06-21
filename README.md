@@ -17,7 +17,7 @@ No Go version, no build step. This is Bash-only.
 - Press `e` to edit the selected value; on `RPORTS`, choose replace/add/delete
 - Press `r` to open a smart service-aware command menu with arrow-key selection
 - Press `u` for URL helpers based on `TARGET` and common web ports
-- Press `x` to copy ready-to-paste cheat commands or the report
+- Press `x` to copy ready-to-paste cheat commands
 - Press `l` for listener, reverse shell, and PTY helper actions
 - Press `d` for a dependency doctor
 - Press `p` for a smart professional pentest brief/report
@@ -74,34 +74,29 @@ Main dashboard:
 - `↑/↓` or `j/k` - select TARGET/HUNTER/URL/RPORTS
 - `c` - copy selected value and export vars
 - `e` - edit selected value and export vars; on `RPORTS`, choose replace/add/delete
-- `r` - run command menu, then use `↑/↓` or `j/k` and `Enter`
+- `r` - run command menu, then choose Smart scans or All scans
 - `u` - URL helper for `http://TARGET`, `https://TARGET`, common web ports, or custom URL
-- `x` - copy cheat commands/report
+- `x` - copy cheat commands
 - `l` - listener and shell helper
 - `d` - dependency doctor
 - `p` - professional report menu
-- `q` - quit
+- `Backspace` - go back from nested menus
+- `q` - quit from any menu
 
-Command menu:
-
-Use `↑/↓` or `j/k`, then `Enter`. Number keys still work.
+Run menu:
 
 ```text
-Smart    service-aware suggestions from RPORTS; nmap stays available
-Recon    nmap, rustscan
-Web      whatweb, nikto, gobuster, ffuf, feroxbuster
-SMB      smbclient, enum4linux-ng, nmap SMB scripts
-Utility  ping, curl, nc
-Shells   nc listener, rlwrap listener, reverse shell/PTY copy helpers
+Smart scans  recommended commands from RPORTS/services
+All scans    every scan/utility command in one list
 ```
 
 Before a command runs, Hacker Dash shows a preview:
 
 ```text
-Enter run   e edit   c copy   b back
+Enter run   e edit   c copy   Backspace back   q quit
 ```
 
-Smart suggestions are based on `RPORTS`:
+Smart scans are based on `RPORTS`:
 
 ```text
 21       FTP checks
@@ -110,41 +105,27 @@ Smart suggestions are based on `RPORTS`:
 139/445  SMB actions
 ```
 
-Nmap baseline actions stay visible even when no services are detected.
+Smart scans keep baseline nmap actions visible even when no services are detected.
+All scans shows every command in one manual list.
 
-Recon subcommands:
-
-```text
-1 nmap quick scripts/services
-2 nmap selected RPORTS
-3 nmap all TCP ports
-4 rustscan services
-```
-
-Web subcommands:
+All scan commands include:
 
 ```text
-1 whatweb URL
-2 nikto URL
-3 gobuster dir
-4 ffuf dir
-5 feroxbuster dir
-```
-
-SMB subcommands:
-
-```text
-1 smbclient list shares
-2 enum4linux-ng
-3 nmap SMB enum scripts
-```
-
-Utility subcommands:
-
-```text
-1 ping TARGET
-2 curl headers/body URL
-3 nc connect TARGET:first RPORT
+nmap quick scripts/services
+nmap selected RPORTS
+nmap all TCP ports
+rustscan services
+whatweb URL
+nikto URL
+gobuster dir
+ffuf dir
+feroxbuster dir
+smbclient list shares
+enum4linux-ng
+nmap SMB enum scripts
+ping TARGET
+curl headers/body URL
+nc connect TARGET:first RPORT
 ```
 
 Shell helper subcommands:

@@ -62,6 +62,7 @@ RPORTS="${RPORTS:-}"
 HD_SELECTED=0
 HD_STATUS=""
 HD_EXIT_AFTER_COMMAND=0
+HD_QUIT_REQUESTED=0
 HD_LAST_REPORT_FILE=""
 HD_PREPARED_COMMAND=""
 HD_LPORT=""
@@ -285,6 +286,30 @@ read_key() {
   printf '%s' "$key"
 }
 
+is_back_key() {
+  [[ "$1" == $'\x7f' || "$1" == $'\b' ]]
+}
+
+request_quit() {
+  HD_QUIT_REQUESTED=1
+  clear_screen
+}
+
+menu_help_choose() {
+  printf '\n  %b↑/↓ j/k%b select  %bEnter%b choose  %bBackspace%b back  %bq%b quit\n' \
+    "$dim" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+}
+
+menu_help_run() {
+  printf '\n  %b↑/↓ j/k%b select  %bEnter%b run  %bBackspace%b back  %bq%b quit\n' \
+    "$dim" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+}
+
+menu_help_copy() {
+  printf '\n  %b↑/↓ j/k%b select  %bEnter%b copy  %bBackspace%b back  %bq%b quit\n' \
+    "$dim" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+}
+
 copy_selected() {
   local name value
   name="$(selected_name)"
@@ -320,8 +345,17 @@ menu_option() {
 }
 
 wait_for_back() {
-  printf '\n  %bEnter%b back' "$bold" "$reset"
-  IFS= read -rsn1 _ || true
+  local key
+  while true; do
+    printf '\n  %bBackspace%b back  %bq%b quit' "$bold" "$reset" "$bold" "$reset"
+    key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
+    case "$key" in
+      q|Q|$'\x03') request_quit; return ;;
+    esac
+  done
 }
 
 port_in_rports() {
@@ -457,10 +491,13 @@ doctor_screen() {
   tool_line gobuster 'dirs'
   tool_line ffuf 'fuzz'
   tool_line smbclient 'SMB'
-  printf '\n  %bc%b copy full doctor  %bEnter%b back' "$bold" "$reset" "$bold" "$reset"
+  printf '\n  %bc%b copy full doctor  %bBackspace%b back  %bq%b quit' "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
 
   local key
   key="$(read_key)" || return
+  if is_back_key "$key"; then
+    return
+  fi
   case "$key" in
     c|C)
       if copy_clipboard "$(doctor_report)"; then
@@ -469,6 +506,7 @@ doctor_screen() {
         HD_STATUS="Could not copy dependency doctor report"
       fi
       ;;
+    q|Q|$'\x03') request_quit; return ;;
   esac
 }
 
@@ -544,9 +582,13 @@ delete_rport() {
     for i in "${!ports[@]}"; do
       menu_option "$i" "$selected" "${ports[$i]}"
     done
-    printf '\n  %bEnter%b delete  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+    printf '\n  %bEnter%b delete  %bBackspace%b back  %bq%b quit\n' "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      HD_STATUS="Delete cancelled"
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
@@ -565,7 +607,7 @@ delete_rport() {
         HD_STATUS="Deleted port $deleted_port; RPORTS updated"
         return
         ;;
-      b|B|q|Q) HD_STATUS="Delete cancelled"; return ;;
+      q|Q|$'\x03') request_quit; return ;;
     esac
   done
 }
@@ -583,30 +625,31 @@ replace_rports() {
 }
 
 rports_menu() {
-  local key selected=0 max=3
+  local key selected=0 max=2
   while true; do
     menu_header "Manage RPORTS"
     printf '  Current: %s\n\n' "${RPORTS:-<empty>}"
     menu_option 0 "$selected" "Replace full list"
     menu_option 1 "$selected" "Add one port"
     menu_option 2 "$selected" "Delete one port"
-    menu_option 3 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b choose\n' "$dim" "$reset" "$bold" "$reset"
+    menu_help_choose
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
       1) replace_rports; return ;;
       2) add_rport; return ;;
       3) delete_rport; return ;;
-      4|b|B|q|Q) return ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
           0) replace_rports; return ;;
           1) add_rport; return ;;
           2) delete_rport; return ;;
-          3) return ;;
         esac
         ;;
     esac
@@ -651,10 +694,13 @@ prepare_command() {
     printf '%b%s%b\n\n' "$bold" "$title" "$reset"
     printf '%bPreview command%b\n' "$grey" "$reset"
     printf '%s\n\n' "$cmd"
-    printf '  %bEnter%b run  %be%b edit  %bc%b copy  %bb%b back' \
-      "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+    printf '  %bEnter%b run  %be%b edit  %bc%b copy  %bBackspace%b back  %bq%b quit' \
+      "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
 
     key="$(read_key)" || return 1
+    if is_back_key "$key"; then
+      return 1
+    fi
     case "$key" in
       ''|$'\r'|$'\n')
         HD_PREPARED_COMMAND="$cmd"
@@ -675,9 +721,7 @@ prepare_command() {
           HD_STATUS="Clipboard copy failed"
         fi
         ;;
-      b|B|q|Q|$'\x1b')
-        return 1
-        ;;
+      q|Q|$'\x03') request_quit; return 1 ;;
     esac
   done
 }
@@ -707,6 +751,7 @@ write_command_script() {
 launch_terminal_command() {
   local title="$1" cmd="$2" script
   prepare_command "$title" "$cmd" || {
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return 1
     HD_STATUS="Command cancelled"
     return 1
   }
@@ -941,13 +986,19 @@ cheat_ffuf() {
   printf 'mkdir -p scans; wordlist=${WORDLIST:-/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt}; ffuf -u %s -w "$wordlist" -o scans/ffuf.json' "$(quote_shell "$url/FUZZ")"
 }
 
+report_step() {
+  local number="$1" text="$2"
+  printf '%s. %s\n' "$number" "$text"
+}
+
 generate_report() {
   load_state
-  local services url scan_dir generated
+  local services url scan_dir generated step
   services="$(smart_service_summary)"
   url="$(active_url)"
   scan_dir="$PWD/scans"
   generated="$(date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || printf 'unknown')"
+  step=1
 
   printf '# Professional Pentest Brief\n\n'
   printf -- '- Generated: %s\n' "$generated"
@@ -959,19 +1010,19 @@ generate_report() {
   printf -- '- Scan directory: %s\n\n' "$scan_dir"
 
   printf '## Recommended next steps\n'
-  printf '1. Baseline: run nmap quick scripts/services and save output under scans/.\n'
-  [[ -n "$RPORTS" ]] && printf '2. Validate discovered ports: run nmap selected RPORTS against %s.\n' "$RPORTS"
+  report_step "$step" 'Baseline: run nmap quick scripts/services and save output under scans/.'; ((step++))
+  [[ -n "$RPORTS" ]] && { report_step "$step" "Validate discovered ports: run nmap selected RPORTS against $RPORTS."; ((step++)); }
   if has_web_ports || has_tls_web_ports; then
-    printf '3. Web: run whatweb, curl headers, and one directory brute-force tool against %s.\n' "${url:-the selected URL}"
+    report_step "$step" "Web: run whatweb, curl headers, and one directory brute-force tool against ${url:-the selected URL}."; ((step++))
   fi
   if has_smb_ports; then
-    printf '4. SMB: list shares anonymously, run enum4linux-ng, and run nmap SMB scripts.\n'
+    report_step "$step" 'SMB: list shares anonymously, run enum4linux-ng, and run nmap SMB scripts.'; ((step++))
   fi
   if has_ssh_ports; then
-    printf '5. SSH: capture host keys/algorithms and keep credentials testing manual and authorized.\n'
+    report_step "$step" 'SSH: capture host keys/algorithms and keep credentials testing manual and authorized.'; ((step++))
   fi
   if has_ftp_ports; then
-    printf '6. FTP: check anonymous login and run safe FTP nmap scripts.\n'
+    report_step "$step" 'FTP: check anonymous login and run safe FTP nmap scripts.'; ((step++))
   fi
   printf '\n## Copy-ready commands\n'
   [[ -n "$TARGET" ]] && printf -- '- %s\n' "$(cheat_nmap_quick)"
@@ -1005,16 +1056,16 @@ menu_header() {
 }
 
 recon_menu() {
-  local key selected=0 max=4
+  local key selected=0 max=3
   while true; do
     menu_header "Recon commands"
     menu_option 0 "$selected" "nmap quick scripts/services"
     menu_option 1 "$selected" "nmap selected RPORTS"
     menu_option 2 "$selected" "nmap all TCP ports"
     menu_option 3 "$selected" "rustscan services"
-    menu_option 4 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b run\n' "$dim" "$reset" "$bold" "$reset"
+    menu_help_run
     key="$(read_key)" || return
+    if is_back_key "$key"; then return; fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
@@ -1022,22 +1073,22 @@ recon_menu() {
       2) run_nmap_rports; return ;;
       3) run_nmap_allports; return ;;
       4) run_rustscan; return ;;
-      5|b|B|q|Q) return ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
           0) run_nmap_quick; return ;;
           1) run_nmap_rports; return ;;
           2) run_nmap_allports; return ;;
           3) run_rustscan; return ;;
-          4) return ;;
         esac
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 web_menu() {
-  local key selected=0 max=5
+  local key selected=0 max=4
   while true; do
     menu_header "Web commands"
     menu_option 0 "$selected" "whatweb URL"
@@ -1045,9 +1096,9 @@ web_menu() {
     menu_option 2 "$selected" "gobuster dir"
     menu_option 3 "$selected" "ffuf dir"
     menu_option 4 "$selected" "feroxbuster dir"
-    menu_option 5 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b run\n' "$dim" "$reset" "$bold" "$reset"
+    menu_help_run
     key="$(read_key)" || return
+    if is_back_key "$key"; then return; fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
@@ -1056,7 +1107,7 @@ web_menu() {
       3) run_gobuster_dir; return ;;
       4) run_ffuf_dir; return ;;
       5) run_feroxbuster; return ;;
-      6|b|B|q|Q) return ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
           0) run_whatweb; return ;;
@@ -1064,68 +1115,68 @@ web_menu() {
           2) run_gobuster_dir; return ;;
           3) run_ffuf_dir; return ;;
           4) run_feroxbuster; return ;;
-          5) return ;;
         esac
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 smb_menu() {
-  local key selected=0 max=3
+  local key selected=0 max=2
   while true; do
     menu_header "SMB commands"
     menu_option 0 "$selected" "smbclient list shares"
     menu_option 1 "$selected" "enum4linux-ng"
     menu_option 2 "$selected" "nmap SMB enum scripts"
-    menu_option 3 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b run\n' "$dim" "$reset" "$bold" "$reset"
+    menu_help_run
     key="$(read_key)" || return
+    if is_back_key "$key"; then return; fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
       1) run_smbclient; return ;;
       2) run_enum4linux; return ;;
       3) run_nmap_smb; return ;;
-      4|b|B|q|Q) return ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
           0) run_smbclient; return ;;
           1) run_enum4linux; return ;;
           2) run_nmap_smb; return ;;
-          3) return ;;
         esac
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 utils_menu() {
-  local key selected=0 max=3
+  local key selected=0 max=2
   while true; do
     menu_header "Utility commands"
     menu_option 0 "$selected" "ping TARGET"
     menu_option 1 "$selected" "curl headers/body URL"
     menu_option 2 "$selected" "nc connect TARGET:first RPORT"
-    menu_option 3 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b run\n' "$dim" "$reset" "$bold" "$reset"
+    menu_help_run
     key="$(read_key)" || return
+    if is_back_key "$key"; then return; fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
       1) run_ping; return ;;
       2) run_curl_headers; return ;;
       3) run_nc_connect; return ;;
-      4|b|B|q|Q) return ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
           0) run_ping; return ;;
           1) run_curl_headers; return ;;
           2) run_nc_connect; return ;;
-          3) return ;;
         esac
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
@@ -1142,18 +1193,21 @@ smart_menu() {
   has_smb_ports && { labels+=("SMB suggested: list shares"); actions+=("run_smbclient"); labels+=("SMB suggested: enum4linux-ng"); actions+=("run_enum4linux"); }
   has_ssh_ports && { labels+=("SSH suggested: nmap SSH scripts"); actions+=("run_nmap_ssh"); }
   has_ftp_ports && { labels+=("FTP suggested: nmap FTP scripts"); actions+=("run_nmap_ftp"); }
-  labels+=("Back") actions+=("back")
   max=$((${#labels[@]} - 1))
 
   while true; do
-    menu_header "Smart suggestions"
-    printf '  Services: %s\n\n' "$(smart_service_summary)"
+    menu_header "Smart scans"
+    printf '  Services: %s\n' "$(smart_service_summary)"
+    printf '  Showing only likely useful commands.\n\n'
     for i in "${!labels[@]}"; do
       menu_option "$i" "$selected" "${labels[$i]}"
     done
-    printf '\n  %bNmap stays always available. Enter%b run\n' "$dim" "$reset"
+    menu_help_run
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
@@ -1161,22 +1215,91 @@ smart_menu() {
         i=$((key - 1))
         if (( i >= 0 && i <= max )); then
           action="${actions[$i]}"
-          [[ "$action" == "back" ]] && return
           "$action"; return
         fi
         ;;
-      b|B|q|Q) return ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         action="${actions[$selected]}"
-        [[ "$action" == "back" ]] && return
         "$action"; return
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
+  done
+}
+
+all_scans_menu() {
+  local key selected=0 max i action
+  local labels=(
+    "nmap quick scripts/services"
+    "nmap selected RPORTS"
+    "nmap all TCP ports"
+    "rustscan services"
+    "whatweb URL"
+    "nikto URL"
+    "gobuster dir"
+    "ffuf dir"
+    "feroxbuster dir"
+    "smbclient list shares"
+    "enum4linux-ng"
+    "nmap SMB enum scripts"
+    "ping TARGET"
+    "curl headers/body URL"
+    "nc connect TARGET:first RPORT"
+  )
+  local actions=(
+    "run_nmap_quick"
+    "run_nmap_rports"
+    "run_nmap_allports"
+    "run_rustscan"
+    "run_whatweb"
+    "run_nikto"
+    "run_gobuster_dir"
+    "run_ffuf_dir"
+    "run_feroxbuster"
+    "run_smbclient"
+    "run_enum4linux"
+    "run_nmap_smb"
+    "run_ping"
+    "run_curl_headers"
+    "run_nc_connect"
+  )
+  max=$((${#labels[@]} - 1))
+
+  while true; do
+    menu_header "All scans"
+    printf '  Manual mode: every command is shown.\n\n'
+    for i in "${!labels[@]}"; do
+      menu_option "$i" "$selected" "${labels[$i]}"
+    done
+    menu_help_run
+
+    key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
+    case "$key" in
+      $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
+      $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
+      [1-9])
+        i=$((key - 1))
+        if (( i >= 0 && i <= max )); then
+          action="${actions[$i]}"
+          "$action"; return
+        fi
+        ;;
+      q|Q|$'\x03') request_quit; return ;;
+      ''|$'\r'|$'\n')
+        action="${actions[$selected]}"
+        "$action"; return
+        ;;
+    esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 url_helper_menu() {
-  local key selected=0 max=5 web_port tls_port custom
+  local key selected=0 max=4 web_port tls_port custom
   web_port="$(first_matching_port 80 8080 8000 8008 8081 8888 3000 5000 9000 2>/dev/null)"
   tls_port="$(first_matching_port 443 8443 4443 9443 2>/dev/null)"
 
@@ -1188,19 +1311,21 @@ url_helper_menu() {
     menu_option 2 "$selected" "Set http://TARGET:${web_port:-8080}"
     menu_option 3 "$selected" "Set https://TARGET:${tls_port:-8443}"
     menu_option 4 "$selected" "Custom URL"
-    menu_option 5 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b choose\n' "$dim" "$reset" "$bold" "$reset"
+    menu_help_choose
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
-      [1-6]) selected=$((key - 1)); key=$'\r' ;;
-      b|B|q|Q) return ;;
+      [1-5]) selected=$((key - 1)); key=$'\r' ;;
+      q|Q|$'\x03') request_quit; return ;;
     esac
     case "$key" in
       ''|$'\r'|$'\n')
-        if [[ "$selected" -ne 4 && "$selected" -ne 5 && -z "$TARGET" ]]; then
+        if [[ "$selected" -ne 4 && -z "$TARGET" ]]; then
           HD_STATUS="Set TARGET first"
           return 1
         fi
@@ -1218,18 +1343,18 @@ url_helper_menu() {
             [[ -z "$custom" ]] && { HD_STATUS="URL unchanged"; return; }
             URL="$custom"
             ;;
-          5) return ;;
         esac
         save_state; export_vars; notify_parent_shell
         HD_STATUS="Updated URL to $URL"
         return
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 cheats_menu() {
-  local key selected=0 max=6
+  local key selected=0 max=4
   while true; do
     menu_header "Copy cheats"
     menu_option 0 "$selected" "export TARGET/HUNTER/URL/RPORTS"
@@ -1237,16 +1362,17 @@ cheats_menu() {
     menu_option 2 "$selected" "nmap selected RPORTS command"
     menu_option 3 "$selected" "gobuster command"
     menu_option 4 "$selected" "ffuf command"
-    menu_option 5 "$selected" "professional report"
-    menu_option 6 "$selected" "Back"
-    printf '\n  %bEnter%b copy  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+    menu_help_copy
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
-      [1-7]) selected=$((key - 1)); key=$'\r' ;;
-      b|B|q|Q) return ;;
+      [1-5]) selected=$((key - 1)); key=$'\r' ;;
+      q|Q|$'\x03') request_quit; return ;;
     esac
     case "$key" in
       ''|$'\r'|$'\n')
@@ -1256,17 +1382,16 @@ cheats_menu() {
           2) require_target && require_rports && copy_text_status "nmap RPORTS command" "$(cheat_nmap_rports)" ;;
           3) require_url && copy_text_status "gobuster command" "$(cheat_gobuster)" ;;
           4) require_url && copy_text_status "ffuf command" "$(cheat_ffuf)" ;;
-          5) copy_text_status "professional report" "$(generate_report)" ;;
-          6) return ;;
         esac
         return
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 shells_menu() {
-  local key selected=0 max=5
+  local key selected=0 max=4
   while true; do
     menu_header "Shell helper"
     printf '  HUNTER/LHOST: %s\n\n' "${HUNTER:-<empty>}"
@@ -1275,15 +1400,17 @@ shells_menu() {
     menu_option 2 "$selected" "copy bash reverse shell"
     menu_option 3 "$selected" "copy Python PTY upgrade"
     menu_option 4 "$selected" "copy stabilize steps"
-    menu_option 5 "$selected" "Back"
-    printf '\n  %bEnter%b choose  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+    menu_help_choose
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
-      [1-6]) selected=$((key - 1)); key=$'\r' ;;
-      b|B|q|Q) return ;;
+      [1-5]) selected=$((key - 1)); key=$'\r' ;;
+      q|Q|$'\x03') request_quit; return ;;
     esac
     case "$key" in
       ''|$'\r'|$'\n')
@@ -1293,15 +1420,15 @@ shells_menu() {
           2) bash_reverse_shell; return ;;
           3) copy_pty_upgrade; return ;;
           4) copy_stabilize_steps; return ;;
-          5) return ;;
         esac
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 report_menu() {
-  local key selected=0 max=3 report_path
+  local key selected=0 max=2 report_path
   while true; do
     menu_header "Professional report"
     printf '  Target: %s\n' "${TARGET:-<empty>}"
@@ -1309,15 +1436,17 @@ report_menu() {
     menu_option 0 "$selected" "Copy report"
     menu_option 1 "$selected" "Save report to ./reports"
     menu_option 2 "$selected" "Preview compact brief"
-    menu_option 3 "$selected" "Back"
-    printf '\n  %bEnter%b choose  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+    menu_help_choose
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
-      [1-4]) selected=$((key - 1)); key=$'\r' ;;
-      b|B|q|Q) return ;;
+      [1-3]) selected=$((key - 1)); key=$'\r' ;;
+      q|Q|$'\x03') request_quit; return ;;
     esac
     case "$key" in
       ''|$'\r'|$'\n')
@@ -1330,55 +1459,44 @@ report_menu() {
             printf 'Target: %s\nHunter: %s\nURL: %s\nPorts: %s\nServices: %s\n' \
               "${TARGET:-not set}" "${HUNTER:-not set}" "${URL:-not set}" "${RPORTS:-not set}" "$(smart_service_summary)"
             wait_for_back
+            [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
             ;;
-          3) return ;;
         esac
         ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
 command_menu() {
-  local key selected=0 max=6 smart_label
+  local key selected=0 max=1
   while true; do
-    smart_label="Smart    $(smart_service_summary)"
     menu_header "Run commands"
-    menu_option 0 "$selected" "$smart_label"
-    menu_option 1 "$selected" "Recon   nmap always, rustscan"
-    menu_option 2 "$selected" "Web     whatweb, nikto, gobuster, ffuf"
-    menu_option 3 "$selected" "SMB     smbclient, enum4linux-ng, nmap"
-    menu_option 4 "$selected" "Utility ping, curl, nc"
-    menu_option 5 "$selected" "Shells  listeners and reverse-shell copy"
-    menu_option 6 "$selected" "Back"
-    printf '\n  %b↑/↓ j/k%b select  %bEnter%b choose\n' "$dim" "$reset" "$bold" "$reset"
+    menu_option 0 "$selected" "Smart scans  recommended from RPORTS/services"
+    menu_option 1 "$selected" "All scans    show every command"
+    menu_help_choose
     if [[ -n "$HD_STATUS" ]]; then
       printf '\n  %b%s%b\n' "$grey" "$HD_STATUS" "$reset"
     fi
 
     key="$(read_key)" || return
+    if is_back_key "$key"; then
+      return
+    fi
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
       1) smart_menu ;;
-      2) recon_menu ;;
-      3) web_menu ;;
-      4) smb_menu ;;
-      5) utils_menu ;;
-      6) shells_menu ;;
-      7|b|B|q|Q) return ;;
+      2) all_scans_menu ;;
+      q|Q|$'\x03') request_quit; return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
           0) smart_menu ;;
-          1) recon_menu ;;
-          2) web_menu ;;
-          3) smb_menu ;;
-          4) utils_menu ;;
-          5) shells_menu ;;
-          6) return ;;
+          1) all_scans_menu ;;
         esac
         ;;
     esac
-    [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 ]] && return
+    [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 || "$HD_QUIT_REQUESTED" -eq 1 ]] && return
   done
 }
 
@@ -1411,20 +1529,19 @@ Main keys:
   e           edit selected value; RPORTS opens add/delete/replace menu
   r           run command menu; choose with ↑/↓ or j/k, Enter to run
   u           URL helper from TARGET and web ports
-  x           copy cheat commands/report
+  x           copy cheat commands
   l           listener and shell helper
   d           dependency doctor
   p           professional report menu
   q           quit
 
 Command menu:
-  Use ↑/↓ or j/k, then Enter. Number keys still work.
-  Smart       service-aware suggestions from RPORTS; nmap stays always visible
-  Recon       nmap quick, nmap RPORTS, nmap all ports, rustscan
-  Web         whatweb, nikto, gobuster, ffuf, feroxbuster
-  SMB         smbclient, enum4linux-ng, nmap SMB scripts
-  Utility     ping, curl, nc
-  Shells      listeners and reverse-shell/PTY copy helpers
+  Smart scans  recommended commands from RPORTS/services
+  All scans    every scan/utility command in one list
+
+Navigation:
+  Backspace   go back from nested menus
+  q           quit from any menu
 
 Notes:
   RPORTS is a comma-separated list, e.g. 22,80,443,8080.
@@ -1438,6 +1555,7 @@ run_ui() {
   load_state
   export_vars
   HD_EXIT_AFTER_COMMAND=0
+  HD_QUIT_REQUESTED=0
 
   while true; do
     draw_dashboard
@@ -1449,14 +1567,15 @@ run_ui() {
       $'\x1b[B'|j|J) (( HD_SELECTED < 3 )) && ((HD_SELECTED++)) ;;
       c|C) copy_selected ;;
       e|E) edit_selected ;;
-      r|R) command_menu; [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 ]] && return 0 ;;
+      r|R) command_menu; [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 || "$HD_QUIT_REQUESTED" -eq 1 ]] && return 0 ;;
       u|U) url_helper_menu ;;
       x|X) cheats_menu ;;
-      l|L) shells_menu; [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 ]] && return 0 ;;
+      l|L) shells_menu; [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 || "$HD_QUIT_REQUESTED" -eq 1 ]] && return 0 ;;
       d|D) doctor_screen ;;
       p|P) report_menu ;;
       q|Q|$'\x03') clear_screen; return 0 ;;
     esac
+    [[ "$HD_QUIT_REQUESTED" -eq 1 ]] && return 0
   done
 }
 
