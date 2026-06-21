@@ -34,7 +34,7 @@ install_script() {
 install_tmux_binding() {
   local dest_q binding tmp
   dest_q="$(quote_shell "$DEST")"
-  binding="bind-key -n C-g display-popup -E -w 46 -h 12 -x R -y C -T \" hacker-dash \" \"HACKER_DASH_IN_POPUP=1 HACKER_DASH_NOTIFY_PID=#{pane_pid} bash $dest_q --no-popup\""
+  binding="bind-key -n C-g display-popup -E -w 56 -h 16 -x R -y C -T \" hacker-dash \" \"HACKER_DASH_IN_POPUP=1 HACKER_DASH_NOTIFY_PID=#{pane_pid} bash $dest_q --no-popup\""
 
   touch "$TMUX_CONF"
   tmp="$(mktemp)"

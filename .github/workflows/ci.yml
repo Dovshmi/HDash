@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: Shell syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check bash syntax
+        run: |
+          bash -n hacker-dash.sh
+          bash -n install.sh
+
+  test-help:
+    name: Test help and basic commands
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test --help
+        run: ./hacker-dash.sh --help | grep -q 'hacker-dash - minimal pentest dashboard'
+
+      - name: Test --print-env
+        run: ./hacker-dash.sh --print-env | grep -q 'export TARGET='
+
+      - name: Test --set and --print-env
+        run: |
+          tmp_config=$(mktemp -d)
+          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --set TARGET 10.10.10.10
+          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --print-env | grep -q 'export TARGET=10.10.10.10'
+          rm -rf "$tmp_config"
+
+      - name: Test --clear
+        run: |
+          tmp_config=$(mktemp -d)
+          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --set TARGET 10.10.10.10
+          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --clear
+          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --print-env | grep -q 'export TARGET='
+          rm -rf "$tmp_config"
+
+  install-test:
+    name: Test installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install in temporary home
+        run: |
+          tmp_home=$(mktemp -d)
+          HOME="$tmp_home" ./install.sh
+          bash -n "$tmp_home/bin/hacker-dash"
+          "$tmp_home/bin/hacker-dash" --help | grep -q 'hacker-dash - minimal pentest dashboard'
+          rm -rf "$tmp_home"
+
+      - name: Test installer is idempotent
+        run: |
+          tmp_home=$(mktemp -d)
+          HOME="$tmp_home" ./install.sh
+          HOME="$tmp_home" ./install.sh
+          # Should still work after running twice
+          bash -n "$tmp_home/bin/hacker-dash"
+          rm -rf "$tmp_home"
+
+  tmux-test:
+    name: Test tmux popup and command launch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tmux
+        run: sudo apt-get update -y && sudo apt-get install -y tmux
+
+      - name: Test command script generation
+        run: |
+          # Test that the write_command_script function works
+          script_path=$(bash -c '
+            source hacker-dash.sh
+            write_command_script "echo hello"
+          ')
+          [ -n "$script_path" ]
+          [ -x "$script_path" ]
+          rm -f "$script_path"
