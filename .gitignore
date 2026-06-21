@@ -6,7 +6,7 @@ reports/
 
 # Optional local installed copy / old Go binary name
 hacker-dash
-
+TODO.md
 # OS/editor noise
 .DS_Store
 Thumbs.db
