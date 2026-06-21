@@ -1,20 +1,14 @@
-# Binaries
-hacker-dash
-bin/
-
-# Dependencies
-vendor/
-
-# OS files
-.DS_Store
-thumbs.db
-
-# Config/State (User specific)
-.config/hacker-dash/
-state.json
+# Local runtime/state
+.config/
 state.env
+state.json
 
-# Go
-*.exe
-*.test
-*.out
+# Optional local installed copy / old Go binary name
+hacker-dash
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

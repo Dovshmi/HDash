@@ -1,7 +1,53 @@
 #!/usr/bin/env bash
-# hacker-dash: Bash/tmux-friendly TARGET/HUNTER dashboard.
-# Source it to update the current shell variables:
-#   source ~/bin/hacker-dash
+# hacker-dash: minimal TARGET/HUNTER dashboard for shells and tmux.
+# Source it when you want the current shell to receive updated variables:
+#   source ./hacker-dash.sh
+
+# If this file is sourced from zsh, do not run the Bash TUI code in zsh.
+# Run the UI with bash, then import the saved TARGET/HUNTER into zsh.
+if [ -z "${BASH_VERSION:-}" ]; then
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    _hd_self="${(%):-%x}"
+  else
+    _hd_self="$0"
+  fi
+
+  case "$_hd_self" in
+    /*) ;;
+    */*)
+      _hd_dir="$(dirname -- "$_hd_self")"
+      _hd_base="$(basename -- "$_hd_self")"
+      _hd_self="$(cd -- "$_hd_dir" 2>/dev/null && pwd)/$_hd_base"
+      ;;
+    *) _hd_self="$(command -v -- "$_hd_self" 2>/dev/null)" ;;
+  esac
+
+  if [ -z "$_hd_self" ]; then
+    printf 'hacker-dash: could not find script path\n' >&2
+    return 1 2>/dev/null || exit 1
+  fi
+
+  case "${1:-}" in
+    --print-env|--help|-h|--set|--clear)
+      bash "$_hd_self" "$@"
+      _hd_rc=$?
+      ;;
+    *)
+      if [ -n "${TMUX:-}" ] && [ -z "${HACKER_DASH_IN_POPUP:-}" ] && [ "${1:-}" != "--no-popup" ] && command -v tmux >/dev/null 2>&1; then
+        _hd_q="$(printf '%q' "$_hd_self")"
+        tmux display-popup -E -w 46 -h 12 -T " hacker-dash " "HACKER_DASH_IN_POPUP=1 bash $_hd_q --no-popup"
+        _hd_rc=$?
+      else
+        bash "$_hd_self" "$@"
+        _hd_rc=$?
+      fi
+      ;;
+  esac
+
+  eval "$(bash "$_hd_self" --print-env)"
+  unset _hd_self _hd_q
+  return "$_hd_rc" 2>/dev/null || exit "$_hd_rc"
+fi
 
 set +e
 
@@ -31,32 +77,45 @@ quote_shell() {
   printf '%q' "$1"
 }
 
+script_path() {
+  local src="${BASH_SOURCE[0]}"
+  if [[ "$src" == */* ]]; then
+    (cd -- "$(dirname -- "$src")" 2>/dev/null && printf '%s/%s\n' "$PWD" "$(basename -- "$src")")
+  else
+    command -v -- "$src"
+  fi
+}
+
+migrate_legacy_json() {
+  [[ -f "$LEGACY_JSON" ]] || return 0
+  [[ -f "$STATE_FILE" ]] && return 0
+
+  local old_target old_hunter
+  old_target="$(awk -F'"' '/"target_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
+  old_hunter="$(awk -F'"' '/"hunter_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
+
+  [[ -n "$old_target" ]] && TARGET="$old_target"
+  [[ -n "$old_hunter" ]] && HUNTER="$old_hunter"
+  save_state
+}
+
 load_state() {
   mkdir -p "$CONFIG_DIR"
+  migrate_legacy_json
 
   if [[ -f "$STATE_FILE" ]]; then
     # shellcheck source=/dev/null
     source "$STATE_FILE"
-    return
-  fi
-
-  if [[ -f "$LEGACY_JSON" ]]; then
-    local old_target old_hunter
-    old_target="$(awk -F'\"' '/"target_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
-    old_hunter="$(awk -F'\"' '/"hunter_ip"/ {print $4; exit}' "$LEGACY_JSON" 2>/dev/null)"
-    [[ -n "$old_target" ]] && TARGET="$old_target"
-    [[ -n "$old_hunter" ]] && HUNTER="$old_hunter"
-    save_state
   fi
 }
 
 save_state() {
   mkdir -p "$CONFIG_DIR"
   {
-    printf 'export TARGET=%s\\n' "$(quote_shell "$TARGET")"
-    printf 'export HUNTER=%s\\n' "$(quote_shell "$HUNTER")"
+    printf 'export TARGET=%s\n' "$(quote_shell "$TARGET")"
+    printf 'export HUNTER=%s\n' "$(quote_shell "$HUNTER")"
   } > "$STATE_FILE"
-  chmod 600 "$STATE_FILE" 2>/dev/null
+  chmod 600 "$STATE_FILE" 2>/dev/null || true
 }
 
 export_vars() {
@@ -64,14 +123,19 @@ export_vars() {
   export HUNTER
 
   if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
-    tmux set-environment -g TARGET "$TARGET" 2>/dev/null
-    tmux set-environment -g HUNTER "$HUNTER" 2>/dev/null
+    tmux set-environment -g TARGET "$TARGET" 2>/dev/null || true
+    tmux set-environment -g HUNTER "$HUNTER" 2>/dev/null || true
   fi
+}
+
+refresh_env_from_state() {
+  load_state
+  export_vars
 }
 
 notify_parent_shell() {
   if [[ "${HACKER_DASH_NOTIFY_PID:-}" =~ ^[0-9]+$ ]]; then
-    kill -USR1 "${HACKER_DASH_NOTIFY_PID}" 2>/dev/null || true
+    kill -USR1 "$HACKER_DASH_NOTIFY_PID" 2>/dev/null || true
   fi
 }
 
@@ -97,6 +161,7 @@ set_selected_value() {
   else
     HUNTER="$1"
   fi
+
   save_state
   export_vars
   notify_parent_shell
@@ -105,24 +170,18 @@ set_selected_value() {
 osc52_copy() {
   local text="$1" encoded
   command -v base64 >/dev/null 2>&1 || return 1
-  encoded="$(printf '%s' "$text" | base64 | tr -d '\\n')"
+  encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
 
   if [[ -n "${TMUX:-}" ]]; then
-    printf '\\033Ptmux;\\033\\033]52;c;%s\\a\\033\\\\' "$encoded"
+    printf '\033Ptmux;\033\033]52;c;%s\a\033\\' "$encoded"
   else
-    printf '\\033]52;c;%s\\a' "$encoded"
+    printf '\033]52;c;%s\a' "$encoded"
   fi
 }
 
 copy_clipboard() {
   local text="$1"
-
-  if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
-    if tmux set-buffer -w -- "$text" 2>/dev/null; then
-      return 0
-    fi
-    tmux set-buffer -- "$text" 2>/dev/null || true
-  fi
+  [[ -z "$text" ]] && return 1
 
   if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null 2>&1; then
     printf '%s' "$text" | wl-copy && return 0
@@ -140,28 +199,33 @@ copy_clipboard() {
     printf '%s' "$text" | pbcopy && return 0
   fi
 
+  if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+    tmux set-buffer -w -- "$text" 2>/dev/null && return 0
+    tmux set-buffer -- "$text" 2>/dev/null && return 0
+  fi
+
   osc52_copy "$text"
 }
 
 clear_screen() {
-  printf '\\033[2J\\033[H'
+  printf '\033[2J\033[H'
 }
 
-# --- Minimal Modern Palette ---
-bold='\033[1m'
-grey='\033[38;5;244m'
-white='\033[0m'
-underline='\033[4m'
-reset='\033[0m'
+# Minimal, modern grayscale UI. No green.
+bold=$'\033[1m'
+dim=$'\033[2m'
+grey=$'\033[38;5;244m'
+white=$'\033[38;5;255m'
+reset=$'\033[0m'
 
 row() {
-  local idx="$1" name="$2" value="$3"
+  local idx="$1" name="$2" value="$3" marker=" "
+  [[ "$HD_SELECTED" -eq "$idx" ]] && marker=">"
+
   if [[ "$HD_SELECTED" -eq "$idx" ]]; then
-    printf '  %b%s %s%b\n' "$white" "$name" "$value" "$reset"
-    # Subtle underline effect for selected row in bash
-    printf '  %b%s%b\n' "$grey" "────────────────────────────" "$reset"
+    printf ' %b%s%b %b%-7s%b %s\n' "$white" "$marker" "$reset" "$bold" "$name" "$reset" "$value"
   else
-    printf '  %b%s %b%s%b\n' "$grey" "$name" "$white" "$value" "$reset"
+    printf ' %b%s %-7s%b %s\n' "$dim" "$marker" "$name" "$reset" "$value"
   fi
 }
 
@@ -171,11 +235,11 @@ draw_dashboard() {
   printf '  %bHACKER DASHBOARD%b\n' "$bold" "$reset"
   printf '%b──────────────────────────────%b\n' "$grey" "$reset"
   row 0 'TARGET:' "$TARGET"
-  printf '\n'
   row 1 'HUNTER:' "$HUNTER"
   printf '%b──────────────────────────────%b\n' "$grey" "$reset"
-  printf '  %b↑/↓ j/k select   ENTER action%b\n' "$grey" "$reset"
-  printf '  %bq quit             %be edit%b\n' "$grey" "$reset" "$grey" "$reset"
+  printf '  %b↑/↓ j/k%b select   %bc%b copy   %be%b edit   %bq%b quit\n' \
+    "$dim" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+
   if [[ -n "$HD_STATUS" ]]; then
     printf '\n  %b%s%b\n' "$grey" "$HD_STATUS" "$reset"
   fi
@@ -183,55 +247,35 @@ draw_dashboard() {
 
 read_key() {
   local key rest
-  IFS= read -rsn1 key
+  IFS= read -rsn1 key || return 1
   if [[ "$key" == $'\x1b' ]]; then
-    IFS= read -rsn2 -t 0.05 rest
+    IFS= read -rsn2 -t 0.05 rest || true
     key+="$rest"
   fi
   printf '%s' "$key"
 }
-
-action_menu() {
-  local action=0 key name value
-  name="$(selected_name)"
-  value="$(selected_value)"
-
-  while true; do
-    clear_screen
-    printf '%b──────────────────────────────%b\n' "$grey" "$reset"
-    printf '  %bAction for %-6s%b\n' "$bold" "$name" "$reset"
-    printf '%b──────────────────────────────%b\n' "$grey" "$reset"
-    printf '  %b%s%b\n\n' "$grey" "$value" "$reset"
-
-    if [[ "$action" -eq 0 ]]; then printf '  %b Copy to clipboard %b\n' "$white" "$reset"; else printf '   Copy to clipboard\n'; fi
-    if [[ "$action" -eq 1 ]]; then printf '  %b Change IP         %b\n' "$white" "$reset"; else printf '   Change IP\n'; fi
-    if [[ "$action" -eq 2 ]]; then printf '  %b Back              %b\n' "$white" "$reset"; else printf '   Back\n'; fi
-
-    printf '\n  %b↑/↓ select, ENTER confirm%b\n' "$grey" "$reset"
-    printf '%b──────────────────────────────%b\n' "$grey" "$reset"
-
-    key="$(read_key)"
-    case "$key" in
-      $'\x1b[A'|k|K) (( action > 0 )) && ((action--)) ;;\n      $'\x1b[B'|j|J) (( action < 2 )) && ((action++)) ;;\n      q|Q|b|B) return ;;\n      '')\n        case "$action" in\n          0) copy_selected; return ;;\n          1) edit_selected; return ;;\n          2) return ;;\n        esac\n        ;;\n    esac\n  done\n}
 
 copy_selected() {
   local name value
   name="$(selected_name)"
   value="$(selected_value)"
 
+  # Copy should also refresh/export the shell and tmux environment.
   export_vars
   save_state
 
   if [[ -z "$value" ]]; then
-    HD_STATUS="$name is empty; nothing copied."
-    return
+    HD_STATUS="$name is empty; nothing copied"
+    notify_parent_shell
+    return 1
   fi
 
   if copy_clipboard "$value"; then
-    HD_STATUS="Copied $name to clipboard"
+    HD_STATUS="Copied $name and exported TARGET/HUNTER"
   else
-    HD_STATUS="Exported $$name, but clipboard failed"
+    HD_STATUS="Exported TARGET/HUNTER; clipboard fallback failed"
   fi
+
   notify_parent_shell
 }
 
@@ -241,13 +285,46 @@ edit_selected() {
   current="$(selected_value)"
 
   clear_screen
-  printf '%bChange %s%b\n\n' "$bold" "$name" "$reset"
+  printf '%bEdit %s%b\n\n' "$bold" "$name" "$reset"
   printf 'Current: %s\n' "$current"
   printf 'New IP: '
   IFS= read -r new_value
 
   set_selected_value "$new_value"
-  HD_STATUS="Updated $name"
+  HD_STATUS="Updated $name and exported TARGET/HUNTER"
+}
+
+print_env() {
+  load_state
+  printf 'export TARGET=%s\n' "$(quote_shell "$TARGET")"
+  printf 'export HUNTER=%s\n' "$(quote_shell "$HUNTER")"
+}
+
+usage() {
+  cat <<'USAGE'
+hacker-dash - minimal TARGET/HUNTER dashboard
+
+Usage:
+  ./hacker-dash.sh                    # tmux popup when inside tmux, otherwise inline UI
+  source ./hacker-dash.sh             # same, and refreshes current shell variables after exit
+  ./hacker-dash.sh --no-popup         # force inline UI
+  ./hacker-dash.sh --popup            # force tmux popup UI
+  ./hacker-dash.sh --print-env        # print export commands
+  ./hacker-dash.sh --set TARGET VALUE # set TARGET
+  ./hacker-dash.sh --set HUNTER VALUE # set HUNTER
+  ./hacker-dash.sh --clear            # clear both values
+
+Keys:
+  ↑/↓ or j/k  select TARGET/HUNTER
+  c           copy selected value and export TARGET/HUNTER
+  e           edit selected value and export TARGET/HUNTER
+  q           quit
+
+Important:
+  A normal executable cannot mutate its parent shell variables.
+  Use `source ./hacker-dash.sh` or a shell function wrapper if you want
+  the current pane's $TARGET and $HUNTER to update after the popup closes.
+USAGE
 }
 
 run_ui() {
@@ -257,35 +334,38 @@ run_ui() {
   while true; do
     draw_dashboard
     local key
-    key="$(read_key)"
+    key="$(read_key)" || return 0
+
     case "$key" in
-      $'\x1b[A'|k|K) HD_SELECTED=0 ;;\n      $'\x1b[B'|j|J) HD_SELECTED=1 ;;\n      e|E) edit_selected ;;\n      q|Q|$'\x03') clear_screen; return 0 ;;\n      '') action_menu ;;\n    esac
+      $'\x1b[A'|k|K) HD_SELECTED=0 ;;
+      $'\x1b[B'|j|J) HD_SELECTED=1 ;;
+      c|C) copy_selected ;;
+      e|E) edit_selected ;;
+      q|Q|$'\x03') clear_screen; return 0 ;;
+    esac
   done
 }
 
-print_env() {
-  load_state
-  printf 'export TARGET=%s\\n' "$(quote_shell "$TARGET")"
-  printf 'export HUNTER=%s\\n' "$(quote_shell "$HUNTER")"
-}
+run_popup() {
+  if [[ -z "${TMUX:-}" ]] || ! command -v tmux >/dev/null 2>&1; then
+    run_ui
+    local status=$?
+    refresh_env_from_state
+    return "$status"
+  fi
 
-usage() {
-  cat <<'USAGE'
-hacker-dash bash version
+  local path qpath cmd status
+  path="$(script_path)"
+  qpath="$(quote_shell "$path")"
+  cmd="HACKER_DASH_IN_POPUP=1 HACKER_DASH_NOTIFY_PID=$$ bash $qpath --no-popup"
 
-Usage:
-  source ~/bin/hacker-dash        # interactive UI; updates current shell TARGET/HUNTER
-  ~/bin/hacker-dash               # interactive UI; cannot update parent shell, but updates state/tmux env
-  ~/bin/hacker-dash --print-env   # print export commands
-  source ~/bin/hacker-dash --set TARGET 10.10.10.10
-  source ~/bin/hacker-dash --set HUNTER 10.10.14.2
+  tmux display-popup -E -w 46 -h 12 -T " hacker-dash " "$cmd"
+  status=$?
 
-Keys:
-  up/down or k/j  select TARGET/HUNTER
-  ENTER           choose Copy / Change / Back
-  e               edit selected IP
-  q               quit
-USAGE
+  # If this script was sourced, this updates the current shell after popup exit.
+  # If it was executed normally, it still keeps this process and tmux env fresh.
+  refresh_env_from_state
+  return "$status"
 }
 
 main() {
@@ -293,26 +373,52 @@ main() {
     --help|-h)
       usage
       return 0
-      ;;\n    --print-env)
+      ;;
+    --print-env)
       print_env
       return 0
-      ;;\n    --set)
+      ;;
+    --set)
       load_state
       case "${2:-}" in
-        TARGET) TARGET="${3:-}" ;;\n        HUNTER) HUNTER="${3:-}" ;;\n        *) printf 'Usage: --set TARGET|HUNTER value\\n' >&2; return 2 ;;\n      esac
+        TARGET) TARGET="${3:-}" ;;
+        HUNTER) HUNTER="${3:-}" ;;
+        *) printf 'Usage: %s --set TARGET|HUNTER VALUE\n' "$APP_NAME" >&2; return 2 ;;
+      esac
       save_state
       export_vars
       notify_parent_shell
       return 0
-      ;;\n    --clear)
+      ;;
+    --clear)
       TARGET=""
       HUNTER=""
       save_state
       export_vars
       notify_parent_shell
       return 0
-      ;;\n    *)\n      run_ui
-      ;;\n  esac
+      ;;
+    --popup)
+      run_popup
+      return $?
+      ;;
+    --no-popup)
+      run_ui
+      local status=$?
+      refresh_env_from_state
+      return "$status"
+      ;;
+    *)
+      if [[ -n "${TMUX:-}" && -z "${HACKER_DASH_IN_POPUP:-}" ]]; then
+        run_popup
+      else
+        run_ui
+        local status=$?
+        refresh_env_from_state
+        return "$status"
+      fi
+      ;;
+  esac
 }
 
 main "$@"

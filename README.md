@@ -1,54 +1,116 @@
-# ⚡ Hacker Dashboard
+# Hacker Dashboard
 
-A lightweight, TUI-based dashboard for managing `TARGET` and `HUNTER` IP addresses, designed for security researchers and CTF players.
+A minimal Bash dashboard for managing `TARGET` and `HUNTER` IP addresses during security research, labs, and CTF work.
 
-It provides a fast way to switch between target IPs, copy them to the system clipboard, and export them as environment variables for other tools (like tmux, shells, or custom scripts) to use.
+No Go version, no build step. This is Bash-only.
 
-## 🚀 Features
+## Features
 
-- **Dual-Mode Implementation**:
-  - **Go TUI**: A modern, polished interface built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
-  - **Bash Script**: A lightweight shell implementation for maximum compatibility and direct shell environment integration.
-- **Environment Integration**: Automatically exports `TARGET` and `HUNTER` variables to your current shell and tmux environment.
-- **Clipboard Support**: Intelligent clipboard integration across Linux (Wayland/X11) and macOS, including OSC52 fallback for SSH/tmux sessions.
-- **State Persistence**: Saves your IPs in `~/.config/hacker-dash/state.json` (Go) or `state.env` (Bash).
+- Minimal modern terminal UI with no green theme
+- Opens as a tmux popup automatically when you run it inside tmux
+- Stores and reuses TARGET/HUNTER values
+- Press `c` to copy the selected value and export TARGET/HUNTER
+- Press `e` to edit the selected value and export TARGET/HUNTER
+- Supports current-shell updates when sourced
+- Supports tmux environment updates for new panes/windows
+- Clipboard fallbacks for Wayland, X11, macOS, tmux, and OSC52
+- State saved at `~/.config/hacker-dash/state.env`
 
-## 🛠 Installation
+## Install
 
-### Go Version
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/yourusername/hacker-dash.git
-   cd hacker-dash
-   ```
-2. Build and install:
-   ```bash
-   go build -o hacker-dash main.go
-   sudo mv hacker-dash /usr/local/bin/
-   ```
+From this folder:
 
-### Bash Version
-Simply copy the `hacker-dash.sh` script to your bin folder:
 ```bash
-cp hacker-dash.sh ~/bin/hacker-dash
-chmod +x ~/bin/hacker-dash
+chmod +x install.sh
+./install.sh
 ```
-To use the interactive features that update your current shell, source it:
+
+This installs:
+
+- `~/bin/hacker-dash`
+- a tmux `Ctrl-g` popup binding in `~/.tmux.conf`
+
+If `~/bin` is not in your PATH, add this to your shell config:
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+## Usage
+
+Inline/popup UI:
+
+```bash
+./hacker-dash.sh
+```
+
+Inside tmux this opens as a popup. Outside tmux it opens inline.
+
+Tmux shortcut installed on this machine:
+
+```bash
+Ctrl-g
+```
+
+This opens Hacker Dash in a tmux popup. Press `q` to close it.
+
+Force modes:
+
+```bash
+./hacker-dash.sh --popup
+./hacker-dash.sh --no-popup
+```
+
+Keys:
+
+- `↑/↓` or `j/k` - select TARGET/HUNTER
+- `c` - copy selected value and export TARGET/HUNTER
+- `e` - edit selected value and export TARGET/HUNTER
+- `q` - quit
+
+## Current shell environment
+
+A normal executable cannot directly change the parent shell environment.
+
+To update `TARGET` and `HUNTER` in your current shell after the popup closes, source it:
+
+```bash
+source ./hacker-dash.sh
+```
+
+Or if installed:
+
 ```bash
 source ~/bin/hacker-dash
 ```
 
-## ⌨️ Usage
-
-- **Up/Down (j/k)**: Select between TARGET and HUNTER.
-- **Enter**: Open action menu (Copy to Clipboard / Change IP).
-- **e**: Quickly edit the selected IP.
-- **q**: Quit.
-
-## ⚙️ Shell Integration (Bash Version)
-To make `hacker-dash` automatically update your current shell when you change an IP from a tmux popup, add this to your `.bashrc` or `.zshrc`:
+Recommended shell function wrapper for Bash or zsh:
 
 ```bash
-# Reload hacker-dash state on USR1 signal
-trap 'source ~/.config/hacker-dash/state.env 2>/dev/null' USR1
+hacker-dash() {
+  source "$HOME/bin/hacker-dash" "$@"
+}
+```
+
+The script detects zsh and runs the Bash UI safely, then imports the saved `TARGET` and `HUNTER` values back into your zsh session.
+
+Add that function to `~/.bashrc` or `~/.zshrc`, then run:
+
+```bash
+hacker-dash
+```
+
+## Non-interactive commands
+
+```bash
+./hacker-dash.sh --set TARGET 10.10.10.10
+./hacker-dash.sh --set HUNTER 10.10.14.2
+./hacker-dash.sh --print-env
+./hacker-dash.sh --clear
+```
+
+To import saved values into the current shell:
+
+```bash
+eval "$(./hacker-dash.sh --print-env)"
 ```
