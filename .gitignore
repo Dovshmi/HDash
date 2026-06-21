@@ -2,6 +2,7 @@
 .config/
 state.env
 state.json
+reports/
 
 # Optional local installed copy / old Go binary name
 hacker-dash

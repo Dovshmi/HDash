@@ -27,16 +27,21 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Test --help
-        run: ./hacker-dash.sh --help | grep -q 'hacker-dash - minimal pentest dashboard'
+        run: |
+          help_output="$(./hacker-dash.sh --help)"
+          [[ "$help_output" == *'hacker-dash - minimal pentest dashboard'* ]]
 
       - name: Test --print-env
-        run: ./hacker-dash.sh --print-env | grep -q 'export TARGET='
+        run: |
+          env_output="$(./hacker-dash.sh --print-env)"
+          [[ "$env_output" == *'export TARGET='* ]]
 
       - name: Test --set and --print-env
         run: |
           tmp_config=$(mktemp -d)
           XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --set TARGET 10.10.10.10
-          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --print-env | grep -q 'export TARGET=10.10.10.10'
+          env_output="$(XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --print-env)"
+          [[ "$env_output" == *'export TARGET=10.10.10.10'* ]]
           rm -rf "$tmp_config"
 
       - name: Test --clear
@@ -44,8 +49,12 @@ jobs:
           tmp_config=$(mktemp -d)
           XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --set TARGET 10.10.10.10
           XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --clear
-          XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --print-env | grep -q 'export TARGET='
+          env_output="$(XDG_CONFIG_HOME="$tmp_config" ./hacker-dash.sh --print-env)"
+          [[ "$env_output" == *'export TARGET='* ]]
           rm -rf "$tmp_config"
+
+      - name: Run smoke tests
+        run: bash tests/smoke.sh
 
   install-test:
     name: Test installer
@@ -59,7 +68,8 @@ jobs:
           tmp_home=$(mktemp -d)
           HOME="$tmp_home" ./install.sh
           bash -n "$tmp_home/bin/hacker-dash"
-          "$tmp_home/bin/hacker-dash" --help | grep -q 'hacker-dash - minimal pentest dashboard'
+          help_output="$("$tmp_home/bin/hacker-dash" --help)"
+          [[ "$help_output" == *'hacker-dash - minimal pentest dashboard'* ]]
           rm -rf "$tmp_home"
 
       - name: Test installer is idempotent
@@ -85,9 +95,11 @@ jobs:
         run: |
           # Test that the write_command_script function works
           script_path=$(bash -c '
-            source hacker-dash.sh
+            source ./hacker-dash.sh --help >/dev/null
             write_command_script "echo hello"
-          ')
+          )
           [ -n "$script_path" ]
           [ -x "$script_path" ]
+          runner_output="$(bash "$script_path" <<<"")"
+          [[ "$runner_output" == *"Command: echo hello"* ]]
           rm -f "$script_path"

