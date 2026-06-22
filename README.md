@@ -14,15 +14,13 @@ No Go version, no build step. This is Bash-only.
   - `URL`
   - `RPORTS` comma-separated ports, like `22,80,443,8080`
 - Press `c` to copy the selected value
-- Press `e` to edit the selected value; on `RPORTS`, choose replace/add/delete
+- Press `e` to edit the selected value; on `URL`, open URL workspace/manual edit; on `RPORTS`, choose replace/add/delete
 - Press `r` to open a smart service-aware command menu with arrow-key selection
-- Press `u` for URL helpers based on `TARGET` and common web ports
-- Press `x` to copy ready-to-paste cheat commands
-- Press `l` for listener, reverse shell, and PTY helper actions
-- Press `d` for a dependency doctor
+- Press `o` for the Operator Toolkit: shell/listener helpers, dependency doctor, and copy-ready operator snippets
 - Press `p` for a smart professional pentest brief/report
 - Commands launch in a normal terminal/tmux window, not inside the dashboard popup
 - Every launched command shows a preview first: Enter runs, `e` edits, `c` copies, `b` backs out
+- Press `b` or Backspace to go back from nested menus
 - Clipboard fallbacks for Wayland, X11, macOS, tmux, and OSC52
 - State saved at `~/.config/hacker-dash/state.env`
 
@@ -73,14 +71,11 @@ Main dashboard:
 
 - `↑/↓` or `j/k` - select TARGET/HUNTER/URL/RPORTS
 - `c` - copy selected value and export vars
-- `e` - edit selected value and export vars; on `RPORTS`, choose replace/add/delete
+- `e` - edit selected value and export vars; on `URL`, choose helper/manual edit; on `RPORTS`, choose replace/add/delete
 - `r` - run command menu, then choose Smart scans or All scans
-- `u` - URL helper for `http://TARGET`, `https://TARGET`, common web ports, or custom URL
-- `x` - copy cheat commands
-- `l` - listener and shell helper
-- `d` - dependency doctor
+- `o` - Operator Toolkit for shells/listeners, dependency doctor, and copy-ready snippets
 - `p` - professional report menu
-- `Backspace` - go back from nested menus
+- `b` or Backspace - go back from nested menus
 - `q` - quit from any menu
 
 Run menu:
@@ -93,7 +88,7 @@ All scans    every scan/utility command in one list
 Before a command runs, Hacker Dash shows a preview:
 
 ```text
-Enter run   e edit   c copy   Backspace back   q quit
+Enter run   e edit   c copy   b/Backspace back   q quit
 ```
 
 Smart scans are based on `RPORTS`:
@@ -128,7 +123,18 @@ curl headers/body URL
 nc connect TARGET:first RPORT
 ```
 
-Shell helper subcommands:
+Operator Toolkit:
+
+```text
+Shell & listeners    listeners, reverse shells, PTY upgrade/stabilization snippets
+Dependency doctor    check useful local dependencies; press d inside toolkit
+Copy-ready snippets  export line and reusable scan/fuzz commands
+```
+
+URL workspace is available from the main dashboard by selecting `URL` and pressing `e`.
+It supports both helper-generated URLs and manual URL editing.
+
+Shell & listeners subcommands:
 
 ```text
 1 nc listener
