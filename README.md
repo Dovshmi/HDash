@@ -1,5 +1,7 @@
 # Hacker Dashboard
 
+![Hacker Dash Preview](https://via.placeholder.com/800x400?text=Hacker+Dash+TUI+Screenshot)
+
 A minimal Bash pentest dashboard for managing common target variables and launching common recon commands from tmux.
 
 No Go version, no build step. This is Bash-only.
@@ -21,6 +23,7 @@ No Go version, no build step. This is Bash-only.
 - Commands launch in a normal terminal/tmux window, not inside the dashboard popup
 - Every launched command shows a preview first: Enter runs, `e` edits, `c` copies, `b` backs out
 - Press `b` or Backspace to go back from nested menus
+- Check out the [examples/](examples/) folder for a sample professional report.
 - Clipboard fallbacks for Wayland, X11, macOS, tmux, and OSC52
 - State saved at `~/.config/hacker-dash/state.env`
 
