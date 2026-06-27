@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white" alt="GitHub Actions" />
   <img src="https://img.shields.io/badge/Pentest_Workflow-475569?style=for-the-badge" alt="Pentest Workflow" />
   <img src="https://img.shields.io/badge/tmux_Popup-Ctrl--g-64748B?style=for-the-badge" alt="tmux Ctrl-g Popup" />
-  <img src="https://img.shields.io/badge/License-Not_Specified-6B7280?style=for-the-badge" alt="License Not Specified" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="MIT License" />
 </div>
 
 <div align="center">
@@ -22,9 +22,9 @@
 
 ## Overview
 
-**HDash** is a lightweight terminal dashboard built for tmux-based security labs, CTF boxes, and authorized internal testing workflows. It keeps the most-used target variables in one place — `TARGET`, `HUNTER`, `URL`, and `RPORTS` — and exposes a keyboard-driven interface for editing, copying, exporting, and using those values during a session.
+**HDash** is a lightweight terminal dashboard built for tmux-based security labs, CTF boxes, and authorized internal testing workflows. It keeps common target variables in one place — `TARGET`, `HUNTER`, `URL`, and `RPORTS` — and provides a keyboard-driven interface for editing, copying, exporting, and using those values during a session.
 
-The project is intentionally simple: it is a Bash script, not a Go/Rust/Python application, and it does not require a build step. The goal is speed, repeatability, and a cleaner workflow inside tmux.
+The project is intentionally simple: it is a Bash script, not a heavy application, and it does not require a build step. The goal is speed, repeatability, and a cleaner workflow inside tmux.
 
 > **Authorized use only:** this tool is intended for systems you own, lab environments, CTF platforms, or engagements where you have explicit permission to test.
 
@@ -34,7 +34,7 @@ The project is intentionally simple: it is a Bash script, not a Go/Rust/Python a
 
 - Keep target context visible and easy to update during terminal work.
 - Reduce repeated typing of IP addresses, listener IPs, URLs, and discovered ports.
-- Launch common recon actions from a predictable tmux workflow.
+- Launch common authorized recon actions from a predictable tmux workflow.
 - Provide a clean command-preview step before anything runs.
 - Keep the tool portable, readable, and dependency-light.
 - Avoid a heavy framework, database, or build process.
@@ -46,13 +46,9 @@ The project is intentionally simple: it is a Bash script, not a Go/Rust/Python a
 ### Dashboard Experience
 
 - **tmux popup workflow** opened with `Ctrl-g` after installation.
-- **Minimal grayscale terminal UI** designed to stay readable without the classic neon-green theme.
+- **Minimal grayscale terminal UI** designed to stay readable without a noisy theme.
 - **Persistent state** stored under `~/.config/hacker-dash/state.env`.
-- **Target variable management** for:
-  - `TARGET`
-  - `HUNTER`
-  - `URL`
-  - `RPORTS`
+- **Target variable management** for `TARGET`, `HUNTER`, `URL`, and `RPORTS`.
 - **Clipboard support** with fallbacks for Wayland, X11, macOS, tmux buffer, and OSC52.
 - **Nested menu navigation** with arrow keys, `j/k`, Backspace, and `b`.
 - **Shell import wrapper** for bringing saved variables back into the current Bash or zsh session.
@@ -61,7 +57,7 @@ The project is intentionally simple: it is a Bash script, not a Go/Rust/Python a
 
 - **Smart service summary** based on `RPORTS` and URL state.
 - **Smart scan menu** that surfaces relevant actions based on detected service categories.
-- **All scans menu** for manually choosing from the available workflow actions.
+- **All scans menu** for manually choosing from available workflow actions.
 - **Command preview screen** before launching a command.
 - **Edit-before-run flow** for adjusting prepared commands safely.
 - **Operator Toolkit** for shell/listener helpers, dependency checks, and reusable snippets.
@@ -85,6 +81,7 @@ HDash does not silently execute selected actions. Before launching a prepared co
 | Tests | Bash smoke tests + Python PTY checks |
 | CI | GitHub Actions |
 | Build Step | None |
+| License | MIT |
 
 ---
 
@@ -100,6 +97,7 @@ HDash/
 │   └── smoke.sh            # CLI and interactive smoke tests
 ├── hacker-dash.sh          # Main dashboard script
 ├── install.sh              # Installer for ~/bin/hacker-dash and tmux binding
+├── LICENSE                 # MIT license
 └── README.md
 ```
 
@@ -332,7 +330,6 @@ chmod +x tests/smoke.sh
 Potential future improvements:
 
 - Add a real screenshot or animated terminal demo to the README.
-- Add a formal license file.
 - Add more test coverage for installer edge cases.
 - Add configurable key binding support.
 - Add export profiles for different labs or boxes.
@@ -342,7 +339,9 @@ Potential future improvements:
 
 ## License
 
-No license file is currently included in the repository. Add a `LICENSE` file if you want others to clearly know how they may use, modify, or redistribute the project.
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
+
+Copyright (c) 2026 **Rony Shmidov**.
 
 ---
 
